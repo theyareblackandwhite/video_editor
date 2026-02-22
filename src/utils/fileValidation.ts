@@ -14,10 +14,10 @@ export const FILE_SIZE_LIMITS = {
 } as const;
 
 /**
- * Empirical multiplier: raw PCM in memory ≈ 4–8× the compressed file size.
- * We use 6 as a conservative middle ground.
+ * Empirical multiplier: raw PCM in memory ≈ 2–4× the compressed file size.
+ * We use 3 as a reasonable middle ground.
  */
-export const MEMORY_MULTIPLIER = 6;
+export const MEMORY_MULTIPLIER = 3;
 
 /** Maximum audio duration (seconds) to decode for sync correlation. */
 export const MAX_DECODE_DURATION_S = 60;
@@ -86,4 +86,28 @@ export function validateFileSize(
  */
 export function estimateMemoryUsageMB(file: File): number {
     return (file.size / MB) * MEMORY_MULTIPLIER;
+}
+
+/**
+ * Estimate peak memory (MB) specifically for the sync decode pipeline.
+ *
+ * Browser decodeAudioData requires the full compressed file in an ArrayBuffer,
+ * then produces a decoded AudioBuffer. However, we only use at most
+ * `maxDurationS` seconds re-sampled to `targetSampleRate` Hz mono (Float32).
+ *
+ * Peak memory ≈ compressed ArrayBuffer + intermediate decoded AudioBuffer + output PCM.
+ * The intermediate AudioBuffer is the largest unknown — we estimate it as
+ * file.size × 1.5 (stereo 16-bit decode is roughly 2×, but codecs vary).
+ */
+export function estimateSyncMemoryMB(
+    file: File,
+    maxDurationS: number = MAX_DECODE_DURATION_S,
+    targetSampleRate: number = 8000
+): number {
+    const compressedMB = file.size / MB;
+    // Intermediate AudioBuffer: conservative 1.5× of compressed size
+    const decodedEstimateMB = compressedMB * 1.5;
+    // Final mono Float32 output (tiny): maxDurationS × sampleRate × 4 bytes
+    const outputMB = (maxDurationS * targetSampleRate * 4) / MB;
+    return compressedMB + decodedEstimateMB + outputMB;
 }

@@ -1,6 +1,6 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Wand2, Play, Pause, ChevronLeft, ChevronRight, CheckCircle, AlertCircle, Settings2, Loader2, ZoomIn, ZoomOut } from 'lucide-react';
+import { Wand2, Play, Pause, ChevronLeft, ChevronRight, CheckCircle, AlertCircle, Settings2, Loader2, ZoomIn, ZoomOut, SkipBack } from 'lucide-react';
 import { useAppStore } from '../../../store/useAppStore';
 import { useAutoSync } from '../../../hooks/useAutoSync';
 
@@ -12,11 +12,23 @@ export const Step2Sync: React.FC = () => {
     const [showManual, setShowManual] = useState(false);
     const [zoom, setZoom] = useState(50);
 
+    // Manual mode playback state
+    const [isManualPlaying, setIsManualPlaying] = useState(false);
+    const [manualCurrentTime, setManualCurrentTime] = useState(0);
+    const [manualDuration, setManualDuration] = useState(0);
+    const animFrameRef = useRef<number | null>(null);
+
     // Audio elements for preview playback
     const videoAudioRef = useRef<HTMLAudioElement | null>(null);
     const externalAudioRef = useRef<HTMLAudioElement | null>(null);
     const videoUrlRef = useRef<string>('');
     const audioUrlRef = useRef<string>('');
+
+    // Manual mode audio elements (separate from the "done" preview ones)
+    const manualVideoAudioRef = useRef<HTMLAudioElement | null>(null);
+    const manualExternalAudioRef = useRef<HTMLAudioElement | null>(null);
+    const manualVideoUrlRef = useRef<string>('');
+    const manualAudioUrlRef = useRef<string>('');
 
     // WaveSurfer refs for preview waveforms (read-only, shown in done state)
     const previewVideoContainer = useRef<HTMLDivElement>(null);
@@ -30,12 +42,16 @@ export const Step2Sync: React.FC = () => {
     const manualVideoWs = useRef<WaveSurfer | null>(null);
     const manualAudioWs = useRef<WaveSurfer | null>(null);
 
+    // Playback cursor ref
+    const playbackCursorRef = useRef<HTMLDivElement>(null);
+    const waveformAreaRef = useRef<HTMLDivElement>(null);
+
     // Drag state for manual mode
     const dragStartX = useRef<number | null>(null);
     const draggingOffsetStart = useRef<number>(0);
     const audioOffsetRef = useRef(syncOffset);
 
-    // Create object URLs for preview playback
+    // Create object URLs for done-phase preview playback
     useEffect(() => {
         if (videoFile) {
             videoUrlRef.current = URL.createObjectURL(videoFile);
@@ -48,6 +64,21 @@ export const Step2Sync: React.FC = () => {
             if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
         };
     }, [videoFile, audioFile]);
+
+    // Create object URLs for manual mode playback
+    useEffect(() => {
+        if (!showManual) return;
+        if (videoFile) {
+            manualVideoUrlRef.current = URL.createObjectURL(videoFile);
+        }
+        if (audioFile) {
+            manualAudioUrlRef.current = URL.createObjectURL(audioFile);
+        }
+        return () => {
+            if (manualVideoUrlRef.current) { URL.revokeObjectURL(manualVideoUrlRef.current); manualVideoUrlRef.current = ''; }
+            if (manualAudioUrlRef.current) { URL.revokeObjectURL(manualAudioUrlRef.current); manualAudioUrlRef.current = ''; }
+        };
+    }, [showManual, videoFile, audioFile]);
 
     // Apply sync result to store
     useEffect(() => {
@@ -128,7 +159,7 @@ export const Step2Sync: React.FC = () => {
                 container: manualVideoContainer.current,
                 waveColor: '#6366F1',
                 progressColor: '#4338CA',
-                cursorColor: '#EF4444',
+                cursorColor: 'transparent',
                 autoCenter: true,
                 height: 100,
                 normalize: true,
@@ -155,9 +186,16 @@ export const Step2Sync: React.FC = () => {
             manualVideoWs.current.load(videoUrl);
             manualAudioWs.current.load(audioUrl);
 
-            // Apply zoom once ready
+            // When clicking on the video waveform, seek audio to matching position
+            manualVideoWs.current.on('interaction', (newTime: number) => {
+                seekManualTo(newTime);
+            });
+
+            // Apply zoom and get duration once ready
             manualVideoWs.current.on('ready', () => {
                 try { manualVideoWs.current?.zoom(zoom); } catch (_) { /* */ }
+                const dur = manualVideoWs.current?.getDuration() ?? 0;
+                setManualDuration(dur);
             });
             manualAudioWs.current.on('ready', () => {
                 try { manualAudioWs.current?.zoom(zoom); } catch (_) { /* */ }
@@ -168,6 +206,7 @@ export const Step2Sync: React.FC = () => {
         }
 
         return () => {
+            stopManualPlayback();
             if (manualVideoWs.current) { manualVideoWs.current.destroy(); manualVideoWs.current = null; }
             if (manualAudioWs.current) { manualAudioWs.current.destroy(); manualAudioWs.current = null; }
             URL.revokeObjectURL(videoUrl);
@@ -185,12 +224,75 @@ export const Step2Sync: React.FC = () => {
         updateAudioVisualPosition(audioOffsetRef.current);
     }, [zoom, showManual]);
 
+    // Stop manual playback when manual mode is hidden
+    useEffect(() => {
+        if (!showManual) {
+            stopManualPlayback();
+        }
+    }, [showManual]);
+
     const updateAudioVisualPosition = (offsetTime: number) => {
         if (manualAudioContainer.current) {
             const pixelOffset = offsetTime * zoom;
             manualAudioContainer.current.style.transform = `translateX(${pixelOffset}px)`;
         }
     };
+
+    // ── Manual Playback Cursor Animation ──
+    const updatePlaybackCursor = useCallback(() => {
+        if (!manualVideoAudioRef.current) return;
+
+        const currentTime = manualVideoAudioRef.current.currentTime;
+        setManualCurrentTime(currentTime);
+
+        // Update WaveSurfer progress visuals
+        if (manualVideoWs.current) {
+            const dur = manualVideoWs.current.getDuration();
+            if (dur > 0) {
+                manualVideoWs.current.seekTo(currentTime / dur);
+            }
+        }
+
+        // Move the custom cursor
+        if (playbackCursorRef.current && waveformAreaRef.current) {
+            const waveformWidth = waveformAreaRef.current.scrollWidth;
+            const waveformScroll = waveformAreaRef.current.scrollLeft;
+            const containerWidth = waveformAreaRef.current.clientWidth;
+            const dur = manualDuration || manualVideoAudioRef.current.duration || 1;
+            const positionInPixels = (currentTime / dur) * waveformWidth;
+            const relativePos = positionInPixels - waveformScroll;
+
+            // If cursor goes off-screen, auto-scroll
+            if (relativePos > containerWidth - 50 || relativePos < 50) {
+                waveformAreaRef.current.scrollLeft = positionInPixels - containerWidth / 2;
+            }
+
+            const clampedPos = Math.max(0, Math.min(relativePos, containerWidth));
+            playbackCursorRef.current.style.left = `${clampedPos}px`;
+            playbackCursorRef.current.style.display = 'block';
+        }
+
+        if (isManualPlaying) {
+            animFrameRef.current = requestAnimationFrame(updatePlaybackCursor);
+        }
+    }, [isManualPlaying, manualDuration]);
+
+    // Start/stop animation loop when playing state changes
+    useEffect(() => {
+        if (isManualPlaying) {
+            animFrameRef.current = requestAnimationFrame(updatePlaybackCursor);
+        } else {
+            if (animFrameRef.current) {
+                cancelAnimationFrame(animFrameRef.current);
+                animFrameRef.current = null;
+            }
+        }
+        return () => {
+            if (animFrameRef.current) {
+                cancelAnimationFrame(animFrameRef.current);
+            }
+        };
+    }, [isManualPlaying, updatePlaybackCursor]);
 
     // ── Handlers ──
 
@@ -222,7 +324,98 @@ export const Step2Sync: React.FC = () => {
         }
     }, [isPreviewPlaying, syncOffset]);
 
+    // ── Manual mode playback ──
+    const seekManualTo = useCallback((timeSeconds: number) => {
+        if (manualVideoAudioRef.current) {
+            manualVideoAudioRef.current.currentTime = timeSeconds;
+        }
+        if (manualExternalAudioRef.current) {
+            const offset = audioOffsetRef.current;
+            // Audio time = video time - offset
+            const audioTime = timeSeconds - offset;
+            manualExternalAudioRef.current.currentTime = Math.max(0, audioTime);
+        }
+        setManualCurrentTime(timeSeconds);
+
+        // Update WaveSurfer visual positions
+        if (manualVideoWs.current) {
+            const dur = manualVideoWs.current.getDuration();
+            if (dur > 0) {
+                manualVideoWs.current.seekTo(timeSeconds / dur);
+            }
+        }
+    }, []);
+
+    const stopManualPlayback = useCallback(() => {
+        manualVideoAudioRef.current?.pause();
+        manualExternalAudioRef.current?.pause();
+        setIsManualPlaying(false);
+        if (animFrameRef.current) {
+            cancelAnimationFrame(animFrameRef.current);
+            animFrameRef.current = null;
+        }
+    }, []);
+
+    const handleManualPlayPause = useCallback(() => {
+        if (!manualVideoAudioRef.current || !manualExternalAudioRef.current) return;
+
+        if (isManualPlaying) {
+            stopManualPlayback();
+        } else {
+            const offset = audioOffsetRef.current;
+            const videoTime = manualVideoAudioRef.current.currentTime;
+            const audioTime = videoTime - offset;
+            manualExternalAudioRef.current.currentTime = Math.max(0, audioTime);
+
+            manualVideoAudioRef.current.play();
+            manualExternalAudioRef.current.play();
+            setIsManualPlaying(true);
+        }
+    }, [isManualPlaying, stopManualPlayback]);
+
+    const handleManualRestart = useCallback(() => {
+        stopManualPlayback();
+        seekManualTo(0);
+    }, [stopManualPlayback, seekManualTo]);
+
+    // Handle cursor drag for seeking
+    const handleCursorDrag = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        const startX = e.clientX;
+        const startTime = manualCurrentTime;
+
+        const onMouseMove = (moveEvent: MouseEvent) => {
+            if (!waveformAreaRef.current) return;
+            const deltaPixels = moveEvent.clientX - startX;
+            const dur = manualDuration || 1;
+            const containerWidth = waveformAreaRef.current.scrollWidth;
+            const deltaSeconds = (deltaPixels / containerWidth) * dur;
+            const newTime = Math.max(0, Math.min(dur, startTime + deltaSeconds));
+            seekManualTo(newTime);
+        };
+
+        const onMouseUp = () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    }, [manualCurrentTime, manualDuration, seekManualTo]);
+
+    // Click on waveform area to seek
+    const handleWaveformClick = useCallback((e: React.MouseEvent) => {
+        if (!waveformAreaRef.current) return;
+        const rect = waveformAreaRef.current.getBoundingClientRect();
+        const clickX = e.clientX - rect.left + waveformAreaRef.current.scrollLeft;
+        const totalWidth = waveformAreaRef.current.scrollWidth;
+        const dur = manualDuration || 1;
+        const newTime = (clickX / totalWidth) * dur;
+        seekManualTo(Math.max(0, Math.min(dur, newTime)));
+    }, [manualDuration, seekManualTo]);
+
     const handleNudge = (amount: number) => {
+        stopManualPlayback();
         const newOffset = syncOffset + amount;
         setSyncOffset(newOffset);
         audioOffsetRef.current = newOffset;
@@ -232,10 +425,11 @@ export const Step2Sync: React.FC = () => {
     const handleConfirm = () => {
         videoAudioRef.current?.pause();
         externalAudioRef.current?.pause();
+        stopManualPlayback();
         setStep(3);
     };
 
-    // Drag handlers for manual mode
+    // Drag handlers for manual mode (offset dragging on audio waveform)
     const handleMouseMove = useCallback((e: MouseEvent) => {
         if (dragStartX.current === null) return;
         const deltaPixels = e.clientX - dragStartX.current;
@@ -260,13 +454,28 @@ export const Step2Sync: React.FC = () => {
         document.addEventListener('mouseup', handleMouseUp);
     };
 
+    // Format time as mm:ss
+    const formatTime = (seconds: number): string => {
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        return `${m}:${s.toString().padStart(2, '0')}`;
+    };
+
     // ── Render ──
 
     return (
         <div className="max-w-3xl mx-auto py-12 px-4">
-            {/* Hidden audio elements for preview */}
+            {/* Hidden audio elements for "done" phase preview */}
             <audio ref={videoAudioRef} src={videoUrlRef.current} preload="auto" />
             <audio ref={externalAudioRef} src={audioUrlRef.current} preload="auto" />
+
+            {/* Hidden audio elements for manual mode playback */}
+            {showManual && (
+                <>
+                    <audio ref={manualVideoAudioRef} src={manualVideoUrlRef.current} preload="auto" />
+                    <audio ref={manualExternalAudioRef} src={manualAudioUrlRef.current} preload="auto" />
+                </>
+            )}
 
             {/* Header */}
             <div className="text-center mb-10">
@@ -419,38 +628,86 @@ export const Step2Sync: React.FC = () => {
                         {showManual ? 'Manuel Düzenlemeyi Gizle' : 'Olmadı, Manuel Düzenlemeye Geç'}
                     </button>
 
-                    {/* ── Manual Mode: Full Interactive Waveforms ── */}
+                    {/* ── Manual Mode: Full Interactive Waveforms with Playback ── */}
                     {showManual && (
                         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 w-full">
                             <h4 className="text-sm font-semibold text-gray-700 mb-2 text-center uppercase tracking-wider">
                                 Manuel Hizalama
                             </h4>
                             <p className="text-xs text-gray-400 text-center mb-4">
-                                Yeşil dalga formunu sürükleyerek kamera sesiyle hizalayın. Yakınlaştırarak hassas ayar yapabilirsiniz.
+                                Yeşil dalga formunu sürükleyerek kamera sesiyle hizalayın. Oynat butonuyla sonucu dinleyin, çizgiyi sürükleyerek istediğiniz yere atlayın.
                             </p>
 
-                            {/* Zoom controls */}
-                            <div className="flex items-center justify-center gap-2 mb-4">
-                                <button
-                                    onClick={() => setZoom(z => Math.max(10, z - 10))}
-                                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                                >
-                                    <ZoomOut size={16} />
-                                </button>
-                                <span className="px-3 text-xs font-mono text-gray-500 w-14 text-center">{zoom}px</span>
-                                <button
-                                    onClick={() => setZoom(z => Math.min(500, z + 10))}
-                                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                                >
-                                    <ZoomIn size={16} />
-                                </button>
+                            {/* Playback controls + Zoom controls */}
+                            <div className="flex items-center justify-between mb-4">
+                                {/* Playback controls */}
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={handleManualRestart}
+                                        className="p-2.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
+                                        title="Başa Dön"
+                                    >
+                                        <SkipBack size={18} />
+                                    </button>
+                                    <button
+                                        onClick={handleManualPlayPause}
+                                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition-all ${isManualPlaying
+                                                ? 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
+                                                : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-md shadow-blue-600/20'
+                                            }`}
+                                    >
+                                        {isManualPlaying ? <Pause size={16} /> : <Play size={16} />}
+                                        {isManualPlaying ? 'Durdur' : 'Oynat'}
+                                    </button>
+                                </div>
+
+                                {/* Time display */}
+                                <div className="text-xs font-mono text-gray-500 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
+                                    {formatTime(manualCurrentTime)} / {formatTime(manualDuration)}
+                                </div>
+
+                                {/* Zoom controls */}
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        onClick={() => setZoom(z => Math.max(10, z - 10))}
+                                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                    >
+                                        <ZoomOut size={16} />
+                                    </button>
+                                    <span className="px-2 text-xs font-mono text-gray-500 w-12 text-center">{zoom}px</span>
+                                    <button
+                                        onClick={() => setZoom(z => Math.min(500, z + 10))}
+                                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                    >
+                                        <ZoomIn size={16} />
+                                    </button>
+                                </div>
                             </div>
 
-                            {/* Dual waveform editor */}
-                            <div className="bg-slate-900 rounded-xl overflow-hidden border border-slate-700 relative select-none">
+                            {/* Dual waveform editor with playback cursor */}
+                            <div
+                                ref={waveformAreaRef}
+                                className="bg-slate-900 rounded-xl overflow-hidden border border-slate-700 relative select-none"
+                                onClick={handleWaveformClick}
+                            >
+                                {/* Playback cursor line */}
+                                <div
+                                    ref={playbackCursorRef}
+                                    className="absolute top-0 bottom-0 z-40 pointer-events-auto cursor-col-resize"
+                                    style={{ display: 'none', left: 0, width: '12px', transform: 'translateX(-6px)' }}
+                                    onMouseDown={handleCursorDrag}
+                                >
+                                    {/* Visible cursor line */}
+                                    <div className="absolute left-1/2 -translate-x-1/2 top-0 bottom-0 w-[2px] bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]" />
+                                    {/* Cursor handle top */}
+                                    <div className="absolute left-1/2 -translate-x-1/2 -top-0.5 w-3 h-3 bg-amber-400 rounded-full shadow-lg border-2 border-amber-300" />
+                                    {/* Cursor handle bottom */}
+                                    <div className="absolute left-1/2 -translate-x-1/2 -bottom-0.5 w-3 h-3 bg-amber-400 rounded-full shadow-lg border-2 border-amber-300" />
+                                </div>
+
                                 {/* Center guideline */}
-                                <div className="absolute left-1/2 top-0 bottom-0 w-px bg-red-500 z-50 pointer-events-none shadow-[0_0_10px_rgba(239,68,68,0.8)]" />
-                                <div className="absolute left-1/2 top-2 -translate-x-1/2 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded z-50 pointer-events-none font-mono">
+                                <div className="absolute left-1/2 top-0 bottom-0 w-px bg-red-500/40 z-30 pointer-events-none" />
+                                <div className="absolute left-1/2 top-2 -translate-x-1/2 bg-red-600/60 text-white/80 text-[10px] px-1.5 py-0.5 rounded z-30 pointer-events-none font-mono">
                                     MERKEZ
                                 </div>
 
@@ -502,14 +759,16 @@ export const Step2Sync: React.FC = () => {
 
                     {/* ── Actions (always at bottom) ── */}
                     <div className="w-full max-w-md flex flex-col gap-3">
-                        <button
-                            onClick={handlePreviewToggle}
-                            className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-white border border-gray-200 text-gray-700 rounded-xl
-                                hover:bg-gray-50 transition-colors font-medium shadow-sm"
-                        >
-                            {isPreviewPlaying ? <Pause size={18} /> : <Play size={18} />}
-                            {isPreviewPlaying ? 'Önizlemeyi Durdur' : 'Sonucu Dinle'}
-                        </button>
+                        {!showManual && (
+                            <button
+                                onClick={handlePreviewToggle}
+                                className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-white border border-gray-200 text-gray-700 rounded-xl
+                                    hover:bg-gray-50 transition-colors font-medium shadow-sm"
+                            >
+                                {isPreviewPlaying ? <Pause size={18} /> : <Play size={18} />}
+                                {isPreviewPlaying ? 'Önizlemeyi Durdur' : 'Sonucu Dinle'}
+                            </button>
+                        )}
 
                         <button
                             onClick={handleConfirm}

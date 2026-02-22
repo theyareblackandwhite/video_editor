@@ -6,7 +6,7 @@
  * different sources (e.g., camera mic vs. external mic).
  */
 
-import { estimateMemoryUsageMB, MAX_DECODE_DURATION_S, formatFileSize } from './fileValidation';
+import { estimateSyncMemoryMB, MAX_DECODE_DURATION_S, formatFileSize } from './fileValidation';
 
 export interface AutoSyncResult {
     /** Offset in seconds. Positive = audio starts later than video. */
@@ -19,7 +19,7 @@ const TARGET_SAMPLE_RATE = 8000; // Downsample to 8kHz for speed
 const MAX_OFFSET_SECONDS = 30;  // Maximum expected drift between tracks
 
 /** Maximum combined memory (MB) allowed before aborting decode. */
-const MAX_COMBINED_MEMORY_MB = 1536; // 1.5 GB
+const MAX_COMBINED_MEMORY_MB = 4096; // 4 GB — modern browsers handle this fine
 
 /**
  * Decode a File to mono Float32Array at a target sample rate.
@@ -219,7 +219,11 @@ export async function autoSyncFiles(
     onProgress?.(0.1);
 
     // Step 0: Pre-decode memory safety check
-    const estimatedMB = estimateMemoryUsageMB(videoFile) + estimateMemoryUsageMB(audioFile);
+    // Use sync-specific estimation that accounts for the actual decode pipeline:
+    //   compressed ArrayBuffer + intermediate AudioBuffer + tiny resampled output
+    const estimatedMB =
+        estimateSyncMemoryMB(videoFile, MAX_DECODE_DURATION_S, TARGET_SAMPLE_RATE) +
+        estimateSyncMemoryMB(audioFile, MAX_DECODE_DURATION_S, TARGET_SAMPLE_RATE);
     if (estimatedMB > MAX_COMBINED_MEMORY_MB) {
         throw new Error(
             `Toplam tahmini bellek kullanımı çok yüksek (${formatFileSize(estimatedMB * 1024 * 1024)}). ` +
