@@ -15,7 +15,7 @@ export interface AutoSyncResult {
     confidence: number;
 }
 
-const TARGET_SAMPLE_RATE = 8000; // Downsample to 8kHz for speed
+export const TARGET_SAMPLE_RATE = 8000; // Downsample to 8kHz for speed
 const MAX_OFFSET_SECONDS = 30;  // Maximum expected drift between tracks
 
 /** Maximum combined memory (MB) allowed before aborting decode. */
@@ -25,7 +25,7 @@ const MAX_COMBINED_MEMORY_MB = 4096; // 4 GB — modern browsers handle this fin
  * Decode a File to mono Float32Array at a target sample rate.
  * @param maxDuration If provided, only decode up to this many seconds.
  */
-async function decodeToMono(
+export async function decodeToMono(
     file: File,
     sampleRate: number,
     maxDuration?: number

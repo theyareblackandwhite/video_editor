@@ -145,7 +145,7 @@ export const Step4Export: React.FC = () => {
             const outputFilename = `output.${config.format}`;
             const data = await ffmpeg.readFile(outputFilename);
             // Cast data to any to handle SharedArrayBuffer type mismatch
-            const blob = new Blob([data as any], { type: `video/${config.format}` });
+            const blob = new Blob([data as unknown as BlobPart], { type: `video/${config.format}` });
             const url = URL.createObjectURL(blob);
 
             setOutputBlob(blob);

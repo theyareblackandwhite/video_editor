@@ -36,6 +36,7 @@ export const useFilePicker = ({ accept, type }: UseFilePickerOptions): UseFilePi
             // Check if File System Access API is supported
             if ('showOpenFilePicker' in window) {
                 try {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const handles = await (window as any).showOpenFilePicker({
                         types: [
                             {
@@ -52,9 +53,9 @@ export const useFilePicker = ({ accept, type }: UseFilePickerOptions): UseFilePi
                         if (!validation.ok) return null;
                         return file;
                     }
-                } catch (err: any) {
+                } catch (err: unknown) {
                     // User cancelled or other error
-                    if (err.name !== 'AbortError') {
+                    if (err instanceof Error && err.name !== 'AbortError') {
                         console.error("File System Access API error:", err);
                         throw err;
                     }
@@ -84,8 +85,8 @@ export const useFilePicker = ({ accept, type }: UseFilePickerOptions): UseFilePi
                     input.click();
                 });
             }
-        } catch (err: any) {
-            if (err.name !== 'AbortError') {
+        } catch (err: unknown) {
+            if (err instanceof Error && err.name !== 'AbortError') {
                 setError(err.message || 'Error selecting file');
             }
         } finally {

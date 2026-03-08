@@ -25,8 +25,8 @@ export const Step3Edit: React.FC = () => {
     const audioRef = useRef<HTMLAudioElement>(null);
     const waveContainerRef = useRef<HTMLDivElement>(null);
     const wsRef = useRef<WaveSurfer | null>(null);
-    const videoUrl = useRef('');
-    const audioUrl = useRef('');
+    const [videoUrl, setVideoUrl] = useState('');
+    const [audioUrl, setAudioUrl] = useState('');
 
     /* ── state ── */
     const [duration, setDuration] = useState(0);
@@ -44,11 +44,23 @@ export const Step3Edit: React.FC = () => {
 
     /* ── create object URLs ── */
     useEffect(() => {
-        if (videoFile) videoUrl.current = URL.createObjectURL(videoFile);
-        if (audioFile) audioUrl.current = URL.createObjectURL(audioFile);
+        let vUrl = '';
+        let aUrl = '';
+        if (videoFile) {
+            vUrl = URL.createObjectURL(videoFile);
+        }
+        if (audioFile) {
+            aUrl = URL.createObjectURL(audioFile);
+        }
+
+        requestAnimationFrame(() => {
+            if (vUrl) setVideoUrl(vUrl);
+            if (aUrl) setAudioUrl(aUrl);
+        });
+
         return () => {
-            if (videoUrl.current) URL.revokeObjectURL(videoUrl.current);
-            if (audioUrl.current) URL.revokeObjectURL(audioUrl.current);
+            if (vUrl) URL.revokeObjectURL(vUrl);
+            if (aUrl) URL.revokeObjectURL(aUrl);
         };
     }, [videoFile, audioFile]);
 
@@ -128,7 +140,6 @@ export const Step3Edit: React.FC = () => {
         };
         // Only re-init when source files actually change
         // zoom is handled by separate effect, seekTo via ref
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [videoFile]);
 
     /* ── zoom ── */
@@ -364,7 +375,7 @@ export const Step3Edit: React.FC = () => {
                         {videoFile && (
                             <video
                                 ref={videoRef}
-                                src={videoUrl.current}
+                                src={videoUrl}
                                 className="w-full h-full object-contain"
                                 onLoadedMetadata={() => {
                                     if (videoRef.current && duration === 0) {
@@ -376,7 +387,7 @@ export const Step3Edit: React.FC = () => {
                             />
                         )}
                         {audioFile && (
-                            <audio ref={audioRef} src={audioUrl.current} preload="auto" />
+                            <audio ref={audioRef} src={audioUrl} preload="auto" />
                         )}
 
                         {/* Time overlay */}

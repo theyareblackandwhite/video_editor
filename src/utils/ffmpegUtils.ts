@@ -128,14 +128,15 @@ export const buildFFmpegCommand = (
 
     // If audioSource is a filter output (not a file stream like "0:a") and we have multiple segments,
     // we MUST split the stream because filter outputs cannot be consumed multiple times.
-    let getAudioSource = (_: number) => audioSource;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    let getAudioSource: (index: number) => string = (index) => audioSource;
     const isAudioFilterOutput = !/^\d+:a$/.test(audioSource);
 
     if (n > 1 && isAudioFilterOutput) {
         // Split audio source into n streams: [a_src_0][a_src_1]...
         const splitOutputs = Array.from({ length: n }, (_, i) => `[a_src_${i}]`).join('');
         filterComplex.push(`[${audioSource}]asplit=${n}${splitOutputs}`);
-        getAudioSource = (i) => `a_src_${i}`;
+        getAudioSource = (i: number) => `a_src_${i}`;
     }
 
     const segmentsToConcat: string[] = [];

@@ -23,8 +23,10 @@ function App() {
 
   useEffect(() => {
     if (currentStep !== prevStepRef.current) {
-      setDirection(currentStep > prevStepRef.current ? 'right' : 'left');
-      setAnimating(true);
+      requestAnimationFrame(() => {
+        setDirection(currentStep > prevStepRef.current ? 'right' : 'left');
+        setAnimating(true);
+      });
 
       // After exit animation, swap content and do enter animation
       const timer = setTimeout(() => {
