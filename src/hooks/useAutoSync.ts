@@ -1,36 +1,67 @@
 import { useState, useCallback } from 'react';
-import { autoSyncFiles, type AutoSyncResult } from '../utils/autoSync';
+import { autoSyncFiles } from '../utils/autoSync';
+import { type MediaFile } from '../store/useAppStore';
 
 export type SyncPhase = 'idle' | 'processing' | 'done' | 'error';
+
+export interface SyncTargetResult {
+    id: string; // The MediaFile ID
+    offsetSeconds: number;
+    confidence: number;
+    error?: string;
+}
 
 interface UseAutoSyncReturn {
     phase: SyncPhase;
     progress: number;
-    result: AutoSyncResult | null;
+    results: SyncTargetResult[];
     error: string | null;
-    runSync: (videoFile: File, audioFile: File) => Promise<void>;
+    runSyncMultiple: (masterFile: File, targets: MediaFile[]) => Promise<void>;
     reset: () => void;
 }
 
 export function useAutoSync(): UseAutoSyncReturn {
     const [phase, setPhase] = useState<SyncPhase>('idle');
     const [progress, setProgress] = useState(0);
-    const [result, setResult] = useState<AutoSyncResult | null>(null);
+    const [results, setResults] = useState<SyncTargetResult[]>([]);
     const [error, setError] = useState<string | null>(null);
 
-    const runSync = useCallback(async (videoFile: File, audioFile: File) => {
+    const runSyncMultiple = useCallback(async (masterFile: File, targets: MediaFile[]) => {
         setPhase('processing');
         setProgress(0);
-        setResult(null);
+        setResults([]);
         setError(null);
 
         try {
-            const syncResult = await autoSyncFiles(videoFile, audioFile, (p) => {
-                setProgress(p);
-            });
+            const finalResults: SyncTargetResult[] = [];
 
-            setResult(syncResult);
+            for (let i = 0; i < targets.length; i++) {
+                const target = targets[i];
+                try {
+                    // Update progress proportionally
+                    const baseProgress = i / targets.length;
+                    const syncResult = await autoSyncFiles(masterFile, target.file, (p) => {
+                        setProgress(baseProgress + (p / targets.length));
+                    });
+                    finalResults.push({
+                        id: target.id,
+                        offsetSeconds: syncResult.offsetSeconds,
+                        confidence: syncResult.confidence
+                    });
+                } catch (err) {
+                    console.error(`Failed to sync target ${target.id}:`, err);
+                    finalResults.push({
+                        id: target.id,
+                        offsetSeconds: 0,
+                        confidence: 0,
+                        error: err instanceof Error ? err.message : 'Sync failed'
+                    });
+                }
+            }
+
+            setResults(finalResults);
             setPhase('done');
+            setProgress(1);
         } catch (err) {
             console.error('Auto-sync failed:', err);
             setError(err instanceof Error ? err.message : 'Auto-sync failed');
@@ -41,9 +72,9 @@ export function useAutoSync(): UseAutoSyncReturn {
     const reset = useCallback(() => {
         setPhase('idle');
         setProgress(0);
-        setResult(null);
+        setResults([]);
         setError(null);
     }, []);
 
-    return { phase, progress, result, error, runSync, reset };
+    return { phase, progress, results, error, runSyncMultiple, reset };
 }

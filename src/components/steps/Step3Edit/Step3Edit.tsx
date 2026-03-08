@@ -2,9 +2,10 @@ import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import WaveSurfer from 'wavesurfer.js';
 import {
     Play, Pause, Scissors, Trash2, ChevronLeft, ChevronRight,
-    SkipBack, SkipForward, ZoomIn, ZoomOut, Plus, GripVertical
+    SkipBack, SkipForward, ZoomIn, ZoomOut, Plus, GripVertical, LayoutTemplate, AudioLines, Loader2
 } from 'lucide-react';
 import { useAppStore, type CutSegment } from '../../../store/useAppStore';
+import { detectSilences } from '../../../utils/autoSync';
 
 /* ── helpers ── */
 const fmtTime = (s: number) => {
@@ -18,17 +19,29 @@ let idCounter = 0;
 const uid = () => `seg-${++idCounter}-${Date.now()}`;
 
 export const Step3Edit: React.FC = () => {
-    const { videoFile, audioFile, syncOffset, cuts, setCuts, setStep } = useAppStore();
+    const { videoFiles, audioFiles, cuts, setCuts, layoutMode, setLayoutMode, setStep } = useAppStore();
+
+    /* ── derived state ── */
+    const masterVideo = videoFiles.find(v => v.isMaster) || videoFiles[0];
+    const otherVideos = videoFiles.filter(v => v.id !== masterVideo?.id);
+    const allAudioFiles = audioFiles;
 
     /* ── refs ── */
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const audioRef = useRef<HTMLAudioElement>(null);
+    const masterVideoRef = useRef<HTMLVideoElement>(null);
+    const otherVideoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
+    const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
     const waveContainerRef = useRef<HTMLDivElement>(null);
     const wsRef = useRef<WaveSurfer | null>(null);
-    const videoUrl = useRef('');
-    const audioUrl = useRef('');
+
+    // Store object URLs for all files
+    const mediaUrls = useRef<Record<string, string>>({});
 
     /* ── state ── */
+    const [isDetectingSilences, setIsDetectingSilences] = useState(false);
+    const [silenceThreshold, setSilenceThreshold] = useState(-35); // dB
+    const [silenceDuration, setSilenceDuration] = useState(0.5); // seconds
+    const [showAutoCutSettings, setShowAutoCutSettings] = useState(false);
+
     const [duration, setDuration] = useState(0);
     const [currentTime, setCurrentTime] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
@@ -44,20 +57,44 @@ export const Step3Edit: React.FC = () => {
 
     /* ── create object URLs ── */
     useEffect(() => {
-        if (videoFile) videoUrl.current = URL.createObjectURL(videoFile);
-        if (audioFile) audioUrl.current = URL.createObjectURL(audioFile);
+        const urls = mediaUrls.current;
+        videoFiles.forEach(v => {
+            if (!urls[v.id]) urls[v.id] = URL.createObjectURL(v.file);
+        });
+        audioFiles.forEach(a => {
+            if (!urls[a.id]) urls[a.id] = URL.createObjectURL(a.file);
+        });
         return () => {
-            if (videoUrl.current) URL.revokeObjectURL(videoUrl.current);
-            if (audioUrl.current) URL.revokeObjectURL(audioUrl.current);
+            Object.values(urls).forEach(url => URL.revokeObjectURL(url));
+            mediaUrls.current = {};
         };
-    }, [videoFile, audioFile]);
+    }, [videoFiles, audioFiles]);
 
     /* ── sync video/audio time ── */
     const seekTo = useCallback((t: number) => {
         setCurrentTime(t);
-        if (videoRef.current) videoRef.current.currentTime = t;
-        if (audioRef.current) audioRef.current.currentTime = Math.max(0, t - syncOffset);
-    }, [syncOffset]);
+
+        // Master Video
+        if (masterVideoRef.current) {
+            masterVideoRef.current.currentTime = t;
+        }
+
+        // Other Videos
+        otherVideos.forEach(v => {
+            const el = otherVideoRefs.current[v.id];
+            if (el) {
+                el.currentTime = Math.max(0, t - v.syncOffset);
+            }
+        });
+
+        // Audio Files
+        allAudioFiles.forEach(a => {
+            const el = audioRefs.current[a.id];
+            if (el) {
+                el.currentTime = Math.max(0, t - a.syncOffset);
+            }
+        });
+    }, [otherVideos, allAudioFiles]);
 
     /* Stable ref so WaveSurfer click handler always uses latest seekTo without causing re-init */
     const seekToRef = useRef(seekTo);
@@ -69,12 +106,11 @@ export const Step3Edit: React.FC = () => {
 
     /* ── WaveSurfer init (audio waveform on timeline) ── */
     useEffect(() => {
-        // Always use videoFile for waveform — it represents the master timeline.
-        // External audio plays separately but the waveform must match the video's timeline.
-        if (!videoFile || !waveContainerRef.current) return;
+        // Always use master video for waveform — it represents the master timeline.
+        if (!masterVideo || !waveContainerRef.current) return;
         if (wsRef.current) { wsRef.current.destroy(); wsRef.current = null; }
 
-        const url = URL.createObjectURL(videoFile);
+        const url = mediaUrls.current[masterVideo.id] || URL.createObjectURL(masterVideo.file);
         wsRef.current = WaveSurfer.create({
             container: waveContainerRef.current,
             waveColor: '#818CF8',
@@ -124,12 +160,11 @@ export const Step3Edit: React.FC = () => {
 
         return () => {
             if (wsRef.current) { wsRef.current.destroy(); wsRef.current = null; }
-            URL.revokeObjectURL(url);
+            // Do not revoke here, managed by the URL effect
         };
-        // Only re-init when source files actually change
-        // zoom is handled by separate effect, seekTo via ref
+        // Only re-init when master video changes
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [videoFile]);
+    }, [masterVideo?.id]);
 
     /* ── zoom ── */
     useEffect(() => {
@@ -148,44 +183,46 @@ export const Step3Edit: React.FC = () => {
         if (!isPlaying) return;
         let raf: number;
         const tick = () => {
-            if (videoRef.current) {
-                const t = videoRef.current.currentTime;
+            if (masterVideoRef.current) {
+                const t = masterVideoRef.current.currentTime;
                 // Skip over cut regions
+                let skipped = false;
                 for (const cut of cuts) {
                     if (t >= cut.start && t < cut.end) {
-                        videoRef.current.currentTime = cut.end;
-                        if (audioRef.current) {
-                            audioRef.current.currentTime = Math.max(0, cut.end - syncOffset);
-                        }
+                        seekToRef.current(cut.end); // Jump to end of cut
+                        skipped = true;
                         break;
                     }
                 }
-                setCurrentTime(videoRef.current.currentTime);
+                if (!skipped) {
+                    setCurrentTime(t);
+                }
             }
             raf = requestAnimationFrame(tick);
         };
         raf = requestAnimationFrame(tick);
         return () => cancelAnimationFrame(raf);
-    }, [isPlaying, cuts, syncOffset]);
+    }, [isPlaying, cuts]);
 
     /* ── play / pause ── */
     const togglePlay = useCallback(() => {
-        if (!videoRef.current) return;
+        if (!masterVideoRef.current) return;
 
         if (isPlaying) {
-            videoRef.current.pause();
-            audioRef.current?.pause();
+            masterVideoRef.current.pause();
+            otherVideos.forEach(v => otherVideoRefs.current[v.id]?.pause());
+            allAudioFiles.forEach(a => audioRefs.current[a.id]?.pause());
             setIsPlaying(false);
         } else {
-            // Sync audio position
-            if (audioRef.current) {
-                audioRef.current.currentTime = Math.max(0, videoRef.current.currentTime - syncOffset);
-            }
-            videoRef.current.play();
-            audioRef.current?.play();
+            // Sync all positions before playing
+            seekTo(masterVideoRef.current.currentTime);
+
+            masterVideoRef.current.play();
+            otherVideos.forEach(v => otherVideoRefs.current[v.id]?.play());
+            allAudioFiles.forEach(a => audioRefs.current[a.id]?.play());
             setIsPlaying(true);
         }
-    }, [isPlaying, syncOffset]);
+    }, [isPlaying, seekTo, otherVideos, allAudioFiles]);
 
     /* ── skip ── */
     const skip = useCallback((dt: number) => {
@@ -329,6 +366,31 @@ export const Step3Edit: React.FC = () => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [togglePlay, handleMarkIn, handleCutOut, skip, selectedCut, removeCut]);
 
+    /* ── auto detect silences ── */
+    const handleDetectSilences = async () => {
+        if (!masterVideo) return;
+        setIsDetectingSilences(true);
+        try {
+            // Use the master video for silence detection
+            // Ideally, we might mix all audio streams, but master is usually a good proxy
+            const newCuts = await detectSilences(masterVideo.file, silenceThreshold, silenceDuration);
+
+            // Merge with existing cuts (simple append for now)
+            if (newCuts.length > 0) {
+                setCuts([...cuts, ...newCuts]);
+                alert(`${newCuts.length} sessiz bölüm bulundu ve kesim listesine eklendi.`);
+            } else {
+                alert(`Belirtilen ayarlara uygun sessiz bölüm bulunamadı.`);
+            }
+            setShowAutoCutSettings(false);
+        } catch (e) {
+            console.error('Silence detection failed:', e);
+            alert("Sessizlik algılama başarısız oldu. Dosya çok büyük olabilir veya tarayıcı desteklemiyor olabilir.");
+        } finally {
+            setIsDetectingSilences(false);
+        }
+    };
+
     /* ── render ── */
     return (
         <div className="max-w-6xl mx-auto py-8 px-4">
@@ -359,25 +421,71 @@ export const Step3Edit: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* ── Video Preview (left) ── */}
                 <div className="lg:col-span-2">
-                    {/* Video player */}
-                    <div className="bg-black rounded-2xl overflow-hidden shadow-xl mb-4 aspect-video relative">
-                        {videoFile && (
-                            <video
-                                ref={videoRef}
-                                src={videoUrl.current}
-                                className="w-full h-full object-contain"
-                                onLoadedMetadata={() => {
-                                    if (videoRef.current && duration === 0) {
-                                        setDuration(videoRef.current.duration);
-                                    }
-                                }}
-                                onEnded={() => setIsPlaying(false)}
-                                muted={!!audioFile}
+
+                    {/* Layout Controls */}
+                    {videoFiles.length > 1 && (
+                        <div className="flex items-center gap-2 mb-4 bg-white p-2 rounded-xl shadow-sm border border-gray-100 w-fit">
+                            <span className="text-sm font-medium text-gray-600 px-2">Görünüm:</span>
+                            <button
+                                onClick={() => setLayoutMode('scale')}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${layoutMode === 'scale' ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-100'}`}
+                            >
+                                <LayoutTemplate size={16} /> Orijinal (Boşluklu)
+                            </button>
+                            <button
+                                onClick={() => setLayoutMode('crop')}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${layoutMode === 'crop' ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-100'}`}
+                            >
+                                <LayoutTemplate size={16} className="rotate-90" /> Kırpılmış (Tam Ekran)
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Video player grid */}
+                    <div className="bg-black rounded-2xl overflow-hidden shadow-xl mb-4 aspect-video relative flex items-center justify-center">
+                        <div className={`w-full h-full flex ${videoFiles.length > 1 ? 'flex-row' : ''}`}>
+                            {masterVideo && (
+                                <div className={`relative ${videoFiles.length > 1 ? 'flex-1 border-r border-gray-800' : 'w-full h-full'} overflow-hidden flex items-center justify-center bg-black`}>
+                                    <video
+                                        ref={masterVideoRef}
+                                        src={mediaUrls.current[masterVideo.id]}
+                                        className={`w-full h-full ${videoFiles.length > 1 && layoutMode === 'crop' ? 'object-cover' : 'object-contain'}`}
+                                        onLoadedMetadata={() => {
+                                            if (masterVideoRef.current && duration === 0) {
+                                                setDuration(masterVideoRef.current.duration);
+                                            }
+                                        }}
+                                        onEnded={() => setIsPlaying(false)}
+                                        muted={allAudioFiles.length > 0} // Mute video if we have external audio
+                                    />
+                                    {videoFiles.length > 1 && (
+                                        <span className="absolute top-2 left-2 bg-black/60 text-white/80 text-[10px] px-2 py-1 rounded font-mono">MASTER</span>
+                                    )}
+                                </div>
+                            )}
+
+                            {otherVideos.map(v => (
+                                <div key={v.id} className="relative flex-1 overflow-hidden flex items-center justify-center bg-black border-l border-gray-800">
+                                    <video
+                                        ref={el => { if (el) otherVideoRefs.current[v.id] = el; }}
+                                        src={mediaUrls.current[v.id]}
+                                        className={`w-full h-full ${layoutMode === 'crop' ? 'object-cover' : 'object-contain'}`}
+                                        muted // Mute secondary videos
+                                    />
+                                    <span className="absolute top-2 left-2 bg-black/60 text-white/80 text-[10px] px-2 py-1 rounded font-mono">KAMERA 2</span>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Hidden Audio Elements */}
+                        {allAudioFiles.map(a => (
+                            <audio
+                                key={a.id}
+                                ref={el => { if (el) audioRefs.current[a.id] = el; }}
+                                src={mediaUrls.current[a.id]}
+                                preload="auto"
                             />
-                        )}
-                        {audioFile && (
-                            <audio ref={audioRef} src={audioUrl.current} preload="auto" />
-                        )}
+                        ))}
 
                         {/* Time overlay */}
                         <div className="absolute bottom-3 left-3 bg-black/70 text-white px-3 py-1 rounded-lg font-mono text-sm">
@@ -416,23 +524,74 @@ export const Step3Edit: React.FC = () => {
                         </div>
 
                         {/* Cut buttons */}
-                        <div className="flex items-center justify-center gap-3 mb-4">
-                            <button
-                                onClick={handleMarkIn}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${markIn !== null ? 'bg-red-100 text-red-700 border border-red-300' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                            >
-                                {markIn !== null ? <Trash2 size={16} /> : <Plus size={16} />}
-                                {markIn !== null ? `Kaldır: ${fmtTime(markIn)}` : 'Başlangıç İşaretle'}
-                            </button>
-                            <button
-                                onClick={handleCutOut}
-                                disabled={markIn === null}
-                                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-red-600 text-white
-                                    hover:bg-red-700 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-md shadow-red-600/20"
-                            >
-                                <Scissors size={16} />
-                                Kes
-                            </button>
+                        <div className="flex items-center justify-between mb-4">
+
+                            <div className="relative">
+                                <button
+                                    onClick={() => setShowAutoCutSettings(!showAutoCutSettings)}
+                                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 transition-colors"
+                                >
+                                    <AudioLines size={16} />
+                                    Otomatik Sessizlik Kes
+                                </button>
+
+                                {showAutoCutSettings && (
+                                    <div className="absolute top-full mt-2 left-0 w-72 bg-white rounded-xl shadow-xl border border-gray-200 p-4 z-50">
+                                        <h4 className="font-semibold text-gray-800 mb-3 text-sm">Otomatik Kesim Ayarları</h4>
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label className="flex justify-between text-xs text-gray-600 mb-1">
+                                                    <span>Hassasiyet (dB)</span>
+                                                    <span>{silenceThreshold} dB</span>
+                                                </label>
+                                                <input
+                                                    type="range" min="-60" max="-10" value={silenceThreshold}
+                                                    onChange={e => setSilenceThreshold(Number(e.target.value))}
+                                                    className="w-full accent-purple-600"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="flex justify-between text-xs text-gray-600 mb-1">
+                                                    <span>Min. Sessizlik Süresi</span>
+                                                    <span>{silenceDuration}s</span>
+                                                </label>
+                                                <input
+                                                    type="range" min="0.1" max="2" step="0.1" value={silenceDuration}
+                                                    onChange={e => setSilenceDuration(Number(e.target.value))}
+                                                    className="w-full accent-purple-600"
+                                                />
+                                            </div>
+                                            <button
+                                                onClick={handleDetectSilences}
+                                                disabled={isDetectingSilences}
+                                                className="w-full py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 flex justify-center items-center gap-2"
+                                            >
+                                                {isDetectingSilences ? <Loader2 size={16} className="animate-spin" /> : <Scissors size={16} />}
+                                                Sessizlikleri Bul ve Kes
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={handleMarkIn}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${markIn !== null ? 'bg-red-100 text-red-700 border border-red-300' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                                >
+                                    {markIn !== null ? <Trash2 size={16} /> : <Plus size={16} />}
+                                    {markIn !== null ? `Kaldır: ${fmtTime(markIn)}` : 'Başlangıç İşaretle'}
+                                </button>
+                                <button
+                                    onClick={handleCutOut}
+                                    disabled={markIn === null}
+                                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-red-600 text-white
+                                        hover:bg-red-700 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-md shadow-red-600/20"
+                                >
+                                    <Scissors size={16} />
+                                    Kes
+                                </button>
+                            </div>
                         </div>
 
                         {/* Keyboard shortcut hints */}

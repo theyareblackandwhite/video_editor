@@ -8,6 +8,8 @@
 
 import { estimateSyncMemoryMB, MAX_DECODE_DURATION_S, formatFileSize } from './fileValidation';
 
+import { type CutSegment } from '../store/useAppStore';
+
 export interface AutoSyncResult {
     /** Offset in seconds. Positive = audio starts later than video. */
     offsetSeconds: number;
@@ -245,4 +247,85 @@ export async function autoSyncFiles(
     onProgress?.(1.0);
 
     return result;
+}
+
+/**
+ * Detect silences in an audio/video file.
+ * Returns an array of cut segments representing the silence regions.
+ *
+ * @param file The media file to analyze
+ * @param thresholdDb The volume threshold in dB (e.g. -35)
+ * @param minDurationSeconds The minimum duration in seconds to consider it a silence
+ */
+export async function detectSilences(
+    file: File,
+    thresholdDb: number,
+    minDurationSeconds: number
+): Promise<CutSegment[]> {
+    // 1. Decode the file to mono audio (we can use a lower sample rate like 8kHz to speed this up,
+    //    but we need to decode the FULL file, not just MAX_DECODE_DURATION_S).
+    // Note: decodeToMono takes maxDuration, but we pass undefined to decode everything.
+    const sampleRate = 8000;
+    const samples = await decodeToMono(file, sampleRate);
+
+    // 2. Convert thresholdDb to linear amplitude
+    // dB = 20 * log10(amplitude) => amplitude = 10 ^ (dB / 20)
+    const thresholdLinear = Math.pow(10, thresholdDb / 20);
+
+    const minSamples = Math.floor(minDurationSeconds * sampleRate);
+    const cuts: CutSegment[] = [];
+
+    let silenceStartSample = -1;
+
+    // To avoid cutting off words too sharply, we use a small sliding window or just simple state machine.
+    // For performance, we check chunks (e.g. 0.1s chunks) to see if the max amplitude is below threshold.
+    const chunkSize = Math.floor(0.1 * sampleRate);
+
+    for (let i = 0; i < samples.length; i += chunkSize) {
+        const endIdx = Math.min(i + chunkSize, samples.length);
+
+        // Find max absolute amplitude in this chunk
+        let maxAmp = 0;
+        for (let j = i; j < endIdx; j++) {
+            const abs = Math.abs(samples[j]);
+            if (abs > maxAmp) {
+                maxAmp = abs;
+            }
+        }
+
+        const isSilent = maxAmp < thresholdLinear;
+
+        if (isSilent) {
+            if (silenceStartSample === -1) {
+                silenceStartSample = i;
+            }
+        } else {
+            if (silenceStartSample !== -1) {
+                // End of silence
+                const silenceSamples = i - silenceStartSample;
+                if (silenceSamples >= minSamples) {
+                    cuts.push({
+                        id: `auto-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+                        start: silenceStartSample / sampleRate,
+                        end: i / sampleRate
+                    });
+                }
+                silenceStartSample = -1;
+            }
+        }
+    }
+
+    // Handle case where file ends with silence
+    if (silenceStartSample !== -1) {
+        const silenceSamples = samples.length - silenceStartSample;
+        if (silenceSamples >= minSamples) {
+            cuts.push({
+                id: `auto-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+                start: silenceStartSample / sampleRate,
+                end: samples.length / sampleRate
+            });
+        }
+    }
+
+    return cuts;
 }

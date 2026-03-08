@@ -1,93 +1,103 @@
 import React from 'react';
-import { FileVideo, FileAudio, CheckCircle, X, AlertTriangle, AlertCircle } from 'lucide-react';
-import { useAppStore } from '../../../store/useAppStore';
+import { FileVideo, FileAudio, X, AlertCircle, Plus, Star } from 'lucide-react';
+import { useAppStore, type MediaFile } from '../../../store/useAppStore';
 import { useFilePicker } from '../../../hooks/useFilePicker';
 
-const FileCard: React.FC<{
+const EmptyCard: React.FC<{
     type: 'video' | 'audio';
-    file: File | null;
     onPick: () => void;
-    onRemove: () => void;
     isLoading: boolean;
-    warning?: string | null;
     error?: string | null;
-}> = ({ type, file, onPick, onRemove, isLoading, warning, error: errorMsg }) => {
+}> = ({ type, onPick, isLoading, error: errorMsg }) => {
     const isVideo = type === 'video';
-    const Icon = isVideo ? FileVideo : FileAudio;
-    const label = isVideo ? 'Video Kaynağı (Kamera)' : 'Ses Kaynağı (Mikrofon)';
+    const label = isVideo ? 'Video Ekle (Kamera)' : 'Ses Ekle (Mikrofon)';
 
     return (
         <div
-            className={`relative border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center transition-all duration-200 cursor-pointer
-                ${file
-                    ? 'border-green-500 bg-green-50'
-                    : 'border-gray-300 hover:border-blue-500 hover:bg-blue-50'
-                }`}
-            onClick={file ? undefined : onPick}
+            className="relative border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center transition-all duration-200 cursor-pointer border-gray-300 hover:border-blue-500 hover:bg-blue-50"
+            onClick={onPick}
         >
-            {file ? (
-                <>
-                    <div className="absolute top-3 left-3 text-green-600">
-                        <CheckCircle size={20} />
-                    </div>
-
-                    {/* Remove button */}
-                    <button
-                        onClick={(e) => { e.stopPropagation(); onRemove(); }}
-                        className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full
-                            bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600
-                            transition-colors"
-                        title="Dosyayı kaldır"
-                    >
-                        <X size={16} />
-                    </button>
-
-                    <Icon size={44} className="text-green-600 mb-3" />
-                    <h3 className="text-sm font-semibold text-gray-900 text-center truncate max-w-full">{file.name}</h3>
-                    <p className="text-xs text-gray-500 mt-1">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
-
-                    {/* Size warning banner */}
-                    {warning && (
-                        <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 w-full">
-                            <AlertTriangle size={14} className="text-amber-600 mt-0.5 shrink-0" />
-                            <span className="text-xs text-amber-700">{warning}</span>
-                        </div>
-                    )}
-
-                    <button
-                        onClick={(e) => { e.stopPropagation(); onPick(); }}
-                        className="mt-3 text-xs text-blue-500 hover:text-blue-700 font-medium transition-colors"
-                    >
-                        Değiştir
-                    </button>
-                </>
-            ) : (
-                <>
-                    <Icon size={48} className="text-gray-400 mb-4" />
-                    <h3 className="text-lg font-semibold text-gray-900 mb-1">{label}</h3>
-                    {!isVideo && <span className="text-xs text-blue-500 font-medium mb-2">(İsteğe bağlı)</span>}
-                    <p className="text-sm text-gray-500 text-center">
-                        Seçmek için tıklayın veya sürükleyip bırakın<br />
-                        <span className="text-xs opacity-75">
-                            {isVideo ? 'MP4, MOV, WebM' : 'MP3, WAV, AAC'}
-                        </span>
-                    </p>
-                    {isLoading && <p className="text-sm text-blue-600 mt-2">Yükleniyor...</p>}
-                    {/* Error banner (e.g. file too large) */}
-                    {errorMsg && (
-                        <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 w-full">
-                            <AlertCircle size={14} className="text-red-600 mt-0.5 shrink-0" />
-                            <span className="text-xs text-red-700">{errorMsg}</span>
-                        </div>
-                    )}
-                </>
+            <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-4">
+                <Plus size={24} className="text-gray-400" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-1">{label}</h3>
+            {!isVideo && <span className="text-xs text-blue-500 font-medium mb-2">(İsteğe bağlı)</span>}
+            <p className="text-sm text-gray-500 text-center">
+                Seçmek için tıklayın veya sürükleyip bırakın<br />
+                <span className="text-xs opacity-75">
+                    {isVideo ? 'MP4, MOV, WebM' : 'MP3, WAV, AAC'}
+                </span>
+            </p>
+            {isLoading && <p className="text-sm text-blue-600 mt-2">Yükleniyor...</p>}
+            {errorMsg && (
+                <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 w-full">
+                    <AlertCircle size={14} className="text-red-600 mt-0.5 shrink-0" />
+                    <span className="text-xs text-red-700">{errorMsg}</span>
+                </div>
             )}
         </div>
     );
 };
 
+const FileItem: React.FC<{
+    mediaFile: MediaFile;
+    type: 'video' | 'audio';
+    onRemove: () => void;
+    onSetMaster?: () => void;
+}> = ({ mediaFile, type, onRemove, onSetMaster }) => {
+    const isVideo = type === 'video';
+    const Icon = isVideo ? FileVideo : FileAudio;
+    const { file, isMaster } = mediaFile;
+
+    return (
+        <div className={`relative border-2 rounded-xl p-4 flex items-center gap-4 transition-all duration-200 bg-white
+            ${isMaster ? 'border-amber-400 shadow-sm' : 'border-gray-200'}
+        `}>
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0
+                ${isMaster ? 'bg-amber-100 text-amber-600' : 'bg-blue-50 text-blue-500'}
+            `}>
+                <Icon size={24} />
+            </div>
+
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-gray-900 truncate">{file.name}</h3>
+                    {isMaster && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">
+                            <Star size={10} className="fill-amber-700" /> MASTER
+                        </span>
+                    )}
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+
+                {isVideo && !isMaster && onSetMaster && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onSetMaster(); }}
+                        className="mt-1 text-[11px] font-medium text-blue-600 hover:text-blue-800 transition-colors"
+                    >
+                        Master Olarak Belirle
+                    </button>
+                )}
+            </div>
+
+            <button
+                onClick={(e) => { e.stopPropagation(); onRemove(); }}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 transition-colors shrink-0"
+                title="Dosyayı kaldır"
+            >
+                <X size={16} />
+            </button>
+        </div>
+    );
+};
+
 export const Step1Input: React.FC = () => {
-    const { videoFile, audioFile, setVideoFile, setAudioFile, setStep } = useAppStore();
+    const {
+        videoFiles, audioFiles,
+        addVideoFile, removeVideoFile, setMasterVideo,
+        addAudioFile, removeAudioFile,
+        setStep
+    } = useAppStore();
 
     const videoPicker = useFilePicker({
         accept: { 'video/*': ['.mp4', '.mov', '.webm', '.mkv'] },
@@ -101,49 +111,85 @@ export const Step1Input: React.FC = () => {
 
     const handlePickVideo = async () => {
         const file = await videoPicker.pickFile();
-        if (file) setVideoFile(file);
+        if (file) addVideoFile(file);
     };
 
     const handlePickAudio = async () => {
         const file = await audioPicker.pickFile();
-        if (file) setAudioFile(file);
+        if (file) addAudioFile(file);
     };
 
-    const canProceed = !!videoFile;
+    const canProceed = videoFiles.length > 0;
 
     return (
-        <div className="max-w-4xl mx-auto py-12 px-4">
+        <div className="max-w-5xl mx-auto py-12 px-4">
             <div className="text-center mb-12">
                 <h2 className="text-3xl font-bold text-gray-900">Medya Dosyalarını Yükle</h2>
-                <p className="mt-2 text-gray-600">Kamera kaydını ve isteğe bağlı olarak harici mikrofon sesini seçin.</p>
+                <p className="mt-2 text-gray-600">Birden fazla kamera kaydını ve harici mikrofon seslerini seçin.</p>
             </div>
 
             <div className="grid md:grid-cols-2 gap-8 mb-12">
-                <FileCard
-                    type="video"
-                    file={videoFile}
-                    onPick={handlePickVideo}
-                    onRemove={() => setVideoFile(null)}
-                    isLoading={videoPicker.isLoading}
-                    warning={videoPicker.warning}
-                    error={videoPicker.error}
-                />
-                <FileCard
-                    type="audio"
-                    file={audioFile}
-                    onPick={handlePickAudio}
-                    onRemove={() => setAudioFile(null)}
-                    isLoading={audioPicker.isLoading}
-                    warning={audioPicker.warning}
-                    error={audioPicker.error}
-                />
+                {/* Videos Section */}
+                <div>
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                            <FileVideo size={20} className="text-blue-500" />
+                            Videolar ({videoFiles.length})
+                        </h3>
+                    </div>
+                    <div className="space-y-3">
+                        {videoFiles.map(vf => (
+                            <FileItem
+                                key={vf.id}
+                                mediaFile={vf}
+                                type="video"
+                                onRemove={() => removeVideoFile(vf.id)}
+                                onSetMaster={() => setMasterVideo(vf.id)}
+                            />
+                        ))}
+                        <EmptyCard
+                            type="video"
+                            onPick={handlePickVideo}
+                            isLoading={videoPicker.isLoading}
+                            error={videoPicker.error}
+                        />
+                    </div>
+                </div>
+
+                {/* Audios Section */}
+                <div>
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                            <FileAudio size={20} className="text-emerald-500" />
+                            Ses Dosyaları ({audioFiles.length})
+                        </h3>
+                    </div>
+                    <div className="space-y-3">
+                        {audioFiles.map(af => (
+                            <FileItem
+                                key={af.id}
+                                mediaFile={af}
+                                type="audio"
+                                onRemove={() => removeAudioFile(af.id)}
+                            />
+                        ))}
+                        <EmptyCard
+                            type="audio"
+                            onPick={handlePickAudio}
+                            isLoading={audioPicker.isLoading}
+                            error={audioPicker.error}
+                        />
+                    </div>
+                </div>
             </div>
 
             <div className="flex justify-center">
                 <button
                     onClick={() => {
                         if (canProceed) {
-                            setStep(audioFile ? 2 : 3);
+                            // If there's more than 1 file total, we probably need syncing
+                            const needsSync = videoFiles.length > 1 || audioFiles.length > 0;
+                            setStep(needsSync ? 2 : 3);
                         }
                     }}
                     disabled={!canProceed}
@@ -155,7 +201,7 @@ export const Step1Input: React.FC = () => {
                         }
                     `}
                 >
-                    {audioFile ? 'Senkronizasyona Devam Et' : 'Düzenlemeye Devam Et'}
+                    {(videoFiles.length > 1 || audioFiles.length > 0) ? 'Senkronizasyona Devam Et' : 'Düzenlemeye Devam Et'}
                 </button>
             </div>
         </div>
