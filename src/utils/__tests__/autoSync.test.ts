@@ -1,42 +1,27 @@
 import { describe, it, expect } from 'vitest';
-import { normalize, computeCorrelation, findBestLag } from '../autoSync';
+import { extractEnvelope, computeCorrelation, findBestLag } from '../autoSync';
 
-describe('normalize', () => {
-    it('returns unchanged array for all-zero signal', () => {
+describe('extractEnvelope', () => {
+    it('extracts a simple envelope and zero-means it', () => {
+        const sampleRate = 8000;
+        const envRate = 4000; // 2 samples per block
+        // Block 1: 0.5, -0.5 -> sum of abs = 1.0 -> avg = 0.5
+        // Block 2: 1.0, -1.0 -> sum of abs = 2.0 -> avg = 1.0
+        // Envelope before zero-mean: [0.5, 1.0]
+        // Mean = 0.75
+        // Final expected: [-0.25, 0.25]
+        const signal = new Float32Array([0.5, -0.5, 1.0, -1.0]);
+        const result = extractEnvelope(signal, sampleRate, envRate);
+        expect(result).toHaveLength(2);
+        expect(result[0]).toBeCloseTo(-0.25);
+        expect(result[1]).toBeCloseTo(0.25);
+    });
+
+    it('handles all-zero signal', () => {
         const signal = new Float32Array([0, 0, 0, 0]);
-        const result = normalize(signal);
-        expect(result).toEqual(signal);
-    });
-
-    it('scales peak to ±1.0', () => {
-        const signal = new Float32Array([0.5, -1.0, 0.25, 0]);
-        const result = normalize(signal);
-        // Max abs is 1.0, so it should stay the same
-        expect(result[0]).toBeCloseTo(0.5);
-        expect(result[1]).toBeCloseTo(-1.0);
-        expect(result[2]).toBeCloseTo(0.25);
-        expect(result[3]).toBeCloseTo(0);
-    });
-
-    it('normalizes a signal with peak < 1', () => {
-        const signal = new Float32Array([0.2, -0.4, 0.1]);
-        const result = normalize(signal);
-        // max abs = 0.4, so each value / 0.4
-        expect(result[0]).toBeCloseTo(0.5);
-        expect(result[1]).toBeCloseTo(-1.0);
-        expect(result[2]).toBeCloseTo(0.25);
-    });
-
-    it('handles single-value signal', () => {
-        const signal = new Float32Array([3.0]);
-        const result = normalize(signal);
-        expect(result[0]).toBeCloseTo(1.0);
-    });
-
-    it('returns a new array, not the original', () => {
-        const signal = new Float32Array([0.5, -0.5]);
-        const result = normalize(signal);
-        expect(result).not.toBe(signal);
+        const result = extractEnvelope(signal, 8000, 4000);
+        expect(result[0]).toBeCloseTo(0);
+        expect(result[1]).toBeCloseTo(0);
     });
 });
 

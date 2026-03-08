@@ -55,21 +55,38 @@ async function decodeToMono(
 }
 
 /**
- * Normalize a signal to [-1, 1] range.
+ * Extract a low-resolution envelope from a raw audio signal.
+ * Instead of cross-correlating raw phase (which can be inverted or slightly shifted),
+ * correlating the volume envelope is vastly more robust against different mics,
+ * noise profiles, and slight pitch shifts.
  */
-export function normalize(signal: Float32Array): Float32Array {
-    let max = 0;
-    for (let i = 0; i < signal.length; i++) {
-        const abs = Math.abs(signal[i]);
-        if (abs > max) max = abs;
-    }
-    if (max === 0) return signal;
+export function extractEnvelope(signal: Float32Array, sampleRate: number, targetEnvelopeRate: number = 100): Float32Array {
+    const samplesPerBlock = Math.floor(sampleRate / targetEnvelopeRate);
+    const envelopeLength = Math.floor(signal.length / samplesPerBlock);
+    const envelope = new Float32Array(envelopeLength);
 
-    const result = new Float32Array(signal.length);
-    for (let i = 0; i < signal.length; i++) {
-        result[i] = signal[i] / max;
+    for (let i = 0; i < envelopeLength; i++) {
+        let sum = 0;
+        const offset = i * samplesPerBlock;
+        for (let j = 0; j < samplesPerBlock; j++) {
+            // using sum of squares (energy) or absolute value (amplitude)
+            sum += Math.abs(signal[offset + j]);
+        }
+        envelope[i] = sum / samplesPerBlock;
     }
-    return result;
+
+    // Zero-mean the envelope so silent parts don't artificially inflate correlation
+    let mean = 0;
+    for (let i = 0; i < envelope.length; i++) {
+        mean += envelope[i];
+    }
+    mean /= envelope.length;
+
+    for (let i = 0; i < envelope.length; i++) {
+        envelope[i] -= mean;
+    }
+
+    return envelope;
 }
 
 /**
@@ -81,40 +98,26 @@ export function findBestLag(
     target: Float32Array,
     maxLagSamples: number
 ): { bestLag: number; confidence: number } {
-    // Use a chunk of the reference signal for correlation
-    // (don't need the entire signal, just enough to find the pattern)
-    const chunkSize = Math.min(reference.length, target.length, TARGET_SAMPLE_RATE * 30); // 30s chunk
+
+    // We only need a solid chunk to find a match.
+    // If the signal is very long, processing the whole thing is slow and unnecessary.
+    // 30 seconds of envelope at 100Hz is only 3000 samples. We can afford to correlate the whole thing,
+    // or just the first 30 seconds to be safe and fast.
+    const chunkSize = Math.min(reference.length, target.length, 3000); // 30s at 100Hz
     const refChunk = reference.slice(0, chunkSize);
 
     let bestCorrelation = -Infinity;
     let bestLag = 0;
+
     let sumCorrelations = 0;
     let correlationCount = 0;
 
-    // Test lags from -maxLagSamples to +maxLagSamples
-    // Negative lag = target starts before reference
-    // Positive lag = target starts after reference
-    const step = Math.max(1, Math.floor(maxLagSamples / 2000)); // Coarse search first
-
-    // Phase 1: Coarse search
-    const coarseCandidates: number[] = [];
-    for (let lag = -maxLagSamples; lag <= maxLagSamples; lag += step) {
+    // Because envelope rate is so low (e.g. 100Hz), we don't need a coarse/fine search.
+    // We can just scan every single lag.
+    for (let lag = -maxLagSamples; lag <= maxLagSamples; lag++) {
         const corr = computeCorrelation(refChunk, target, lag);
         sumCorrelations += Math.abs(corr);
         correlationCount++;
-
-        if (corr > bestCorrelation) {
-            bestCorrelation = corr;
-            bestLag = lag;
-        }
-        coarseCandidates.push(lag);
-    }
-
-    // Phase 2: Fine search around the best coarse candidate
-    const fineRange = step * 2;
-    for (let lag = bestLag - fineRange; lag <= bestLag + fineRange; lag++) {
-        if (lag < -maxLagSamples || lag > maxLagSamples) continue;
-        const corr = computeCorrelation(refChunk, target, lag);
 
         if (corr > bestCorrelation) {
             bestCorrelation = corr;
@@ -124,8 +127,9 @@ export function findBestLag(
 
     // Compute confidence: ratio of best correlation to average
     const avgCorrelation = sumCorrelations / correlationCount;
+    // With zero-mean envelopes, a good match is usually significantly higher than the noise floor
     const confidence = avgCorrelation > 0
-        ? Math.min(1, bestCorrelation / (avgCorrelation * 3))
+        ? Math.min(1, bestCorrelation / (avgCorrelation * 5))
         : 0;
 
     return { bestLag, confidence };
@@ -149,6 +153,7 @@ export function computeCorrelation(
         sum += ref[i] * target[i + lag];
     }
 
+    // Normalize by the overlap length to prevent biasing towards smaller lags (larger overlaps)
     return sum / (end - start);
 }
 
@@ -189,12 +194,16 @@ function runCorrelationInWorker(
             );
         } catch {
             // Worker not supported or creation failed → fallback to main thread
-            const normVideo = normalize(videoSamples);
-            const normAudio = normalize(audioSamples);
-            const maxLagSamples = Math.floor(MAX_OFFSET_SECONDS * TARGET_SAMPLE_RATE);
-            const { bestLag, confidence } = findBestLag(normVideo, normAudio, maxLagSamples);
+            const targetEnvelopeRate = 100;
+            const envVideo = extractEnvelope(videoSamples, TARGET_SAMPLE_RATE, targetEnvelopeRate);
+            const envAudio = extractEnvelope(audioSamples, TARGET_SAMPLE_RATE, targetEnvelopeRate);
+
+            const maxLagSamples = Math.floor(MAX_OFFSET_SECONDS * targetEnvelopeRate);
+
+            const { bestLag, confidence } = findBestLag(envVideo, envAudio, maxLagSamples);
+
             resolve({
-                offsetSeconds: bestLag / TARGET_SAMPLE_RATE,
+                offsetSeconds: bestLag / targetEnvelopeRate,
                 confidence,
             });
         }
