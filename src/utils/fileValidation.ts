@@ -20,7 +20,7 @@ export const FILE_SIZE_LIMITS = {
 export const MEMORY_MULTIPLIER = 3;
 
 /** Maximum audio duration (seconds) to decode for sync correlation. */
-export const MAX_DECODE_DURATION_S = 60;
+export const MAX_DECODE_DURATION_S = 60; // 1 minute as requested
 
 /* ── Helpers ── */
 

@@ -111,16 +111,21 @@ export const Step2Sync: React.FC = () => {
     useEffect(() => {
         if (results.length > 0) {
             results.forEach(res => {
+                // Find if target is a video
                 const isVideo = videoFiles.some(v => v.id === res.id);
                 if (isVideo) {
-                    setVideoSyncOffset(res.id, res.offsetSeconds);
+                    // We shouldn't dispatch to store in an effect like this if we can avoid it.
+                    // But we only want to update once when results arrive.
+                    // Let's check current offset so we don't dispatch continuously
+                    const vFile = videoFiles.find(v => v.id === res.id);
+                    if (vFile && vFile.syncOffset !== res.offsetSeconds) {
+                         setVideoSyncOffset(res.id, res.offsetSeconds);
+                    }
                 } else {
-                    setAudioSyncOffset(res.id, res.offsetSeconds);
-                }
-
-                // Update local ref if this is the selected target
-                if (res.id === selectedTarget?.id) {
-                    audioOffsetRef.current = res.offsetSeconds;
+                    const aFile = audioFiles.find(a => a.id === res.id);
+                    if (aFile && aFile.syncOffset !== res.offsetSeconds) {
+                        setAudioSyncOffset(res.id, res.offsetSeconds);
+                    }
                 }
             });
 
@@ -129,7 +134,7 @@ export const Step2Sync: React.FC = () => {
                 setSelectedTargetId(targetFiles[0].id);
             }
         }
-    }, [results, videoFiles, setVideoSyncOffset, setAudioSyncOffset, selectedTarget, selectedTargetId, targetFiles]);
+    }, [results, videoFiles, audioFiles, setVideoSyncOffset, setAudioSyncOffset, selectedTargetId, targetFiles]);
 
     // Update ref when selected target changes manually
     useEffect(() => {
@@ -478,6 +483,19 @@ export const Step2Sync: React.FC = () => {
         videoAudioRef.current?.pause();
         externalAudioRef.current?.pause();
         stopManualPlayback();
+
+        // Auto-cut the initial un-synchronized portion
+        // If any target has a positive offset (meaning it starts later than the master),
+        // the master has "unnecessary start" up to the maximum offset.
+        // We want all streams to have valid data.
+        const maxOffset = Math.max(0, ...videoFiles.map(v => v.syncOffset), ...audioFiles.map(a => a.syncOffset));
+        if (maxOffset > 0.1) { // Only cut if it's more than 100ms to avoid tiny unnoticeable cuts
+            const { setCuts, cuts } = useAppStore.getState();
+            // Create a unique cut ID
+            const id = `auto-start-${Date.now()}`;
+            setCuts([...cuts, { id, start: 0, end: maxOffset }]);
+        }
+
         setStep(3);
     };
 
