@@ -112,6 +112,14 @@ export const Step2Sync: React.FC = () => {
         }
     }, [selectedTarget]);
 
+    // Update text label manually to avoid React diff crashes
+    useEffect(() => {
+        if (offsetTextRef.current) {
+            const sign = syncOffset >= 0 ? '+' : '';
+            offsetTextRef.current.textContent = `${sign}${syncOffset.toFixed(3)}s`;
+        }
+    }, [syncOffset]);
+
     // ── Unified Waveform View ──
     useEffect(() => {
         if (phase !== 'done' || !masterVideo || !selectedTarget) return;
@@ -511,7 +519,7 @@ export const Step2Sync: React.FC = () => {
                         <div className="bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-100 text-center">
                             <span className="block text-[10px] text-gray-400 uppercase tracking-wider">Kayma</span>
                             <span ref={offsetTextRef} className="text-base font-mono font-bold text-blue-600">
-                                {syncOffset >= 0 ? '+' : ''}{syncOffset.toFixed(3)}s
+                                {/* Text content is managed via effect and refs to prevent React crashes */}
                             </span>
                         </div>
                     </div>
