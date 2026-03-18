@@ -10,3 +10,4 @@ export {
     MAX_DECODE_DURATION_S,
     type FileSizeValidation,
 } from './fileValidation';
+export * from './audio';
