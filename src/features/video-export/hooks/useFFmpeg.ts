@@ -16,6 +16,15 @@ export const useFFmpeg = () => {
         }
 
         setIsLoading(true);
+
+        // Check for SharedArrayBuffer support (required for multi-threaded FFmpeg)
+        if (!self.crossOriginIsolated) {
+            console.error('SharedArrayBuffer is not available. Check COOP/COEP headers.');
+            setMessage('Tarayıcı güvenli ortamda değil veya COOP/COEP başlıkları eksik. Lütfen HTTPS kullandığınızdan ve sunucu yapılandırmasını kontrol ettiğinizden emin olun.');
+            setIsLoading(false);
+            return;
+        }
+
         // Load from local public directory — avoids CORS/COEP issues with CDN
         const baseURL = `${window.location.origin}/ffmpeg-mt`;
         try {
@@ -27,7 +36,8 @@ export const useFFmpeg = () => {
             setIsLoaded(true);
         } catch (error) {
             console.error('Failed to load FFmpeg:', error);
-            setMessage('FFmpeg yüklenemedi. Lütfen sayfayı yenileyip tekrar deneyin.');
+            const errorMessage = error instanceof Error ? error.message : 'Bilinmeyen hata';
+            setMessage(`FFmpeg yüklenemedi: ${errorMessage}. Lütfen sayfayı yenileyip tekrar deneyin.`);
         } finally {
             setIsLoading(false);
         }

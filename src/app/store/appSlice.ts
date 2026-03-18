@@ -15,6 +15,7 @@ export interface AppSlice {
     deleteProject: (id: string) => void;
     renameProject: (id: string, newName: string) => void;
     updateProjectState: () => void;
+    hydrateProject: (projectId: string) => Promise<void>;
 }
 
 let saveTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -58,22 +59,7 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
     },
 
     switchProject: (id) => {
-        const { projects } = get();
-        const project = projects.find(p => p.id === id);
-        if (!project) return;
-
-        // Note: the actual files (File/Blob objects) will be hydrated by a helper asynchronously
-        // Here we just set the metadata and other primitive state. The helper will listen and hydrate mediaFiles.
-        set({
-            currentProjectId: id,
-            currentStep: project.state.currentStep,
-            cuts: project.state.cuts,
-            layoutMode: project.state.layoutMode,
-            transitionType: project.state.transitionType,
-            // We clear files temporarily while hydration happens
-            videoFiles: [],
-            audioFiles: [],
-        });
+        get().hydrateProject(id).catch(console.error);
     },
 
     deleteProject: (id) => {
@@ -177,5 +163,22 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
                 )
             }));
         }, 1000); // 1-second debounce
+    },
+
+    hydrateProject: async (projectId) => {
+        const { projects, hydrateMediaFiles } = get();
+        const project = projects.find(p => p.id === projectId);
+        if (!project) return;
+
+        // 1. Restore metadata to root state immediately
+        set({
+            currentStep: project.state.currentStep || 1,
+            cuts: project.state.cuts || [],
+            layoutMode: project.state.layoutMode || 'crop',
+            transitionType: project.state.transitionType || 'none',
+        });
+
+        // 2. Hydrate media files (async)
+        await hydrateMediaFiles(projectId);
     }
 });

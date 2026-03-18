@@ -72,4 +72,39 @@ describe('useAppStore', () => {
         expect(cuts[0].id).toBe('c2');
     });
 
+    it('hydrateProject restores all project state to root', async () => {
+        const projectId = 'test-project-123';
+        const projectCuts = [{ id: 'c1', start: 1, end: 2 }];
+        
+        // Mock a project in the store
+        const project = {
+            id: projectId,
+            name: 'Test Project',
+            lastModified: Date.now(),
+            state: {
+                currentStep: 3,
+                videoFiles: [],
+                audioFiles: [],
+                cuts: projectCuts,
+                layoutMode: 'scale' as const,
+                transitionType: 'crossfade' as const,
+            }
+        };
+
+        useAppStore.setState({ 
+            projects: [project], 
+            currentProjectId: projectId,
+            currentStep: 1,
+            cuts: []
+        });
+        
+        // Run hydration
+        await useAppStore.getState().hydrateProject(projectId);
+        
+        const state = useAppStore.getState();
+        expect(state.currentStep).toBe(3);
+        expect(state.cuts).toEqual(projectCuts);
+        expect(state.layoutMode).toBe('scale');
+        expect(state.transitionType).toBe('crossfade');
+    });
 });

@@ -15,7 +15,7 @@ const StepComponents: Record<number, React.FC> = {
 };
 
 function App() {
-  const { currentStep, createProject, switchProject, hydrateMediaFiles } = useAppStore();
+  const { currentStep, createProject, switchProject, hydrateProject } = useAppStore();
   const projectsLength = useAppStore(state => state.projects.length);
   const currentProjectId = useAppStore(state => state.currentProjectId);
   const firstProjectId = useAppStore(state => state.projects[0]?.id);
@@ -32,7 +32,7 @@ function App() {
     } else if (projectsLength > 0 && !currentProjectId && firstProjectId) {
       // If there are projects but none is selected, switch to the first one
       switchProject(firstProjectId);
-      hydrateMediaFiles(firstProjectId).catch(console.error);
+      hydrateProject(firstProjectId).catch(console.error);
     } else if (currentProjectId) {
       // Perform initial hydration if we reload the page and have a current project
       // Because current files are not persisted to localStorage.
@@ -40,11 +40,11 @@ function App() {
       if (state.videoFiles.length === 0 && state.audioFiles.length === 0) {
         const project = state.projects.find(p => p.id === currentProjectId);
         if (project && (project.state.videoFiles.length > 0 || project.state.audioFiles.length > 0)) {
-          hydrateMediaFiles(currentProjectId).catch(console.error);
+          hydrateProject(currentProjectId).catch(console.error);
         }
       }
     }
-  }, [projectsLength, currentProjectId, firstProjectId, createProject, switchProject, hydrateMediaFiles]);
+  }, [projectsLength, currentProjectId, firstProjectId, createProject, switchProject, hydrateProject]);
 
   useEffect(() => {
     if (currentStep !== prevStepRef.current) {
