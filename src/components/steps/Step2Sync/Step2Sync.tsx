@@ -3,6 +3,8 @@ import WaveSurfer from 'wavesurfer.js';
 import { Wand2, Play, Pause, ChevronLeft, ChevronRight, CheckCircle, AlertCircle, Settings2, Loader2, ZoomIn, ZoomOut, SkipBack, FileVideo, FileAudio } from 'lucide-react';
 import { useAppStore } from '../../../store/useAppStore';
 import { useAutoSync } from '../../../hooks/useAutoSync';
+import { decodeToMono, TARGET_SAMPLE_RATE } from '../../../utils/autoSync';
+import { MAX_DECODE_DURATION_S } from '../../../utils/fileValidation';
 
 export const Step2Sync: React.FC = () => {
     const {
@@ -530,18 +532,239 @@ export const Step2Sync: React.FC = () => {
         return `${m}:${s.toString().padStart(2, '0')}`;
     };
 
+    // Create object URLs for done-phase preview playback
+    useEffect(() => {
+        if (videoFile) {
+            videoUrlRef.current = URL.createObjectURL(videoFile);
+        }
+        if (audioFile) {
+            audioUrlRef.current = URL.createObjectURL(audioFile);
+        }
+        return () => {
+            if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
+            if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+        };
+    }, [videoFile, audioFile]);
+
+    // Create object URLs for manual mode playback
+    useEffect(() => {
+        if (!showManual) return;
+        if (videoFile) {
+            manualVideoUrlRef.current = URL.createObjectURL(videoFile);
+        }
+        if (audioFile) {
+            manualAudioUrlRef.current = URL.createObjectURL(audioFile);
+        }
+        return () => {
+            if (manualVideoUrlRef.current) { URL.revokeObjectURL(manualVideoUrlRef.current); manualVideoUrlRef.current = ''; }
+            if (manualAudioUrlRef.current) { URL.revokeObjectURL(manualAudioUrlRef.current); manualAudioUrlRef.current = ''; }
+        };
+    }, [showManual, videoFile, audioFile]);
+
+    // Apply sync result to store
+    useEffect(() => {
+        if (result) {
+            setSyncOffset(result.offsetSeconds);
+            audioOffsetRef.current = result.offsetSeconds;
+        }
+    }, [result, setSyncOffset]);
+
+    // ── Preview Waveforms (read-only, shown in done state) ──
+    useEffect(() => {
+        if (phase !== 'done' || !videoFile || !audioFile) return;
+        if (!previewVideoContainer.current || !previewAudioContainer.current) return;
+
+        let isCancelled = false;
+
+        // Cleanup
+        if (previewVideoWs.current) { previewVideoWs.current.destroy(); previewVideoWs.current = null; }
+        if (previewAudioWs.current) { previewAudioWs.current.destroy(); previewAudioWs.current = null; }
+
+        const videoUrl = URL.createObjectURL(videoFile);
+        const audioUrl = URL.createObjectURL(audioFile);
+
+        const loadPreviewWaveforms = async () => {
+            try {
+                const [vPeaks, aPeaks] = await Promise.all([
+                    decodeToMono(videoFile, TARGET_SAMPLE_RATE, MAX_DECODE_DURATION_S),
+                    decodeToMono(audioFile, TARGET_SAMPLE_RATE, MAX_DECODE_DURATION_S)
+                ]);
+
+                if (isCancelled) return;
+
+                previewVideoWs.current = WaveSurfer.create({
+                    container: previewVideoContainer.current!,
+                    waveColor: '#6366F1',
+                    progressColor: '#4338CA',
+                    cursorColor: 'transparent',
+                    height: 64,
+                    normalize: true,
+                    interact: false,
+                    hideScrollbar: true,
+                    barWidth: 2,
+                    barGap: 1,
+                    barRadius: 2,
+                });
+                previewVideoWs.current.load(videoUrl, [vPeaks], MAX_DECODE_DURATION_S);
+
+                previewAudioWs.current = WaveSurfer.create({
+                    container: previewAudioContainer.current!,
+                    waveColor: '#10B981',
+                    progressColor: '#059669',
+                    cursorColor: 'transparent',
+                    height: 64,
+                    normalize: true,
+                    interact: false,
+                    hideScrollbar: true,
+                    barWidth: 2,
+                    barGap: 1,
+                    barRadius: 2,
+                });
+                previewAudioWs.current.load(audioUrl, [aPeaks], MAX_DECODE_DURATION_S);
+            } catch (e) {
+                console.error('Preview waveform error:', e);
+            }
+        };
+
+        loadPreviewWaveforms();
+
+        return () => {
+            isCancelled = true;
+            if (previewVideoWs.current) { previewVideoWs.current.destroy(); previewVideoWs.current = null; }
+            if (previewAudioWs.current) { previewAudioWs.current.destroy(); previewAudioWs.current = null; }
+            URL.revokeObjectURL(videoUrl);
+            URL.revokeObjectURL(audioUrl);
+        };
+    }, [phase, videoFile, audioFile]);
+
+    // ── Manual Mode Waveforms (interactive, draggable) ──
+    useEffect(() => {
+        if (!showManual || !videoFile || !audioFile) return;
+        if (!manualVideoContainer.current || !manualAudioContainer.current) return;
+
+        let isCancelled = false;
+
+        // Cleanup
+        if (manualVideoWs.current) { manualVideoWs.current.destroy(); manualVideoWs.current = null; }
+        if (manualAudioWs.current) { manualAudioWs.current.destroy(); manualAudioWs.current = null; }
+
+        const videoUrl = URL.createObjectURL(videoFile);
+        const audioUrl = URL.createObjectURL(audioFile);
+
+        const loadManualWaveforms = async () => {
+            try {
+                const [vPeaks, aPeaks] = await Promise.all([
+                    decodeToMono(videoFile, TARGET_SAMPLE_RATE, MAX_DECODE_DURATION_S),
+                    decodeToMono(audioFile, TARGET_SAMPLE_RATE, MAX_DECODE_DURATION_S)
+                ]);
+
+                if (isCancelled) return;
+
+                manualVideoWs.current = WaveSurfer.create({
+                    container: manualVideoContainer.current!,
+                    waveColor: '#6366F1',
+                    progressColor: '#4338CA',
+                    cursorColor: 'transparent',
+                    autoCenter: true,
+                    height: 100,
+                    normalize: true,
+                    minPxPerSec: 10,
+                    interact: true,
+                    hideScrollbar: false,
+                    autoScroll: true,
+                });
+
+                manualAudioWs.current = WaveSurfer.create({
+                    container: manualAudioContainer.current!,
+                    waveColor: '#10B981',
+                    progressColor: '#059669',
+                    cursorColor: 'transparent',
+                    autoCenter: false,
+                    height: 100,
+                    normalize: true,
+                    minPxPerSec: 10,
+                    interact: false,
+                    hideScrollbar: true,
+                    autoScroll: false,
+                });
+
+                // When clicking on the video waveform, seek audio to matching position
+                manualVideoWs.current.on('interaction', (newTime: number) => {
+                    seekManualTo(newTime);
+                });
+
+                // Apply zoom and get duration once ready
+                manualVideoWs.current.on('ready', () => {
+                    try { manualVideoWs.current?.zoom(zoom); } catch { /* */ }
+                    const rawDur = manualVideoWs.current?.getDuration() ?? 0;
+                    setManualDuration(isNaN(rawDur) || rawDur === 0 ? MAX_DECODE_DURATION_S : Math.min(rawDur, MAX_DECODE_DURATION_S));
+                });
+                manualAudioWs.current.on('ready', () => {
+                    try { manualAudioWs.current?.zoom(zoom); } catch { /* */ }
+                    updateAudioVisualPosition(audioOffsetRef.current);
+                });
+
+                manualVideoWs.current.load(videoUrl, [vPeaks], MAX_DECODE_DURATION_S);
+                manualAudioWs.current.load(audioUrl, [aPeaks], MAX_DECODE_DURATION_S);
+
+            } catch (e) {
+                console.error('Manual waveform error:', e);
+            }
+        };
+
+        loadManualWaveforms();
+
+        return () => {
+            isCancelled = true;
+            stopManualPlayback();
+            if (manualVideoWs.current) { manualVideoWs.current.destroy(); manualVideoWs.current = null; }
+            if (manualAudioWs.current) { manualAudioWs.current.destroy(); manualAudioWs.current = null; }
+            URL.revokeObjectURL(videoUrl);
+            URL.revokeObjectURL(audioUrl);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showManual, videoFile, audioFile]);
+
+    // Zoom effect for manual mode
+    useEffect(() => {
+        if (!showManual) return;
+        try {
+            manualVideoWs.current?.zoom(zoom);
+            manualAudioWs.current?.zoom(zoom);
+        } catch { /* */ }
+        updateAudioVisualPosition(audioOffsetRef.current);
+    }, [zoom, showManual, updateAudioVisualPosition]);
+
+    // Stop manual playback when manual mode is hidden
+    useEffect(() => {
+        if (!showManual) {
+            stopManualPlayback();
+        }
+    }, [showManual, stopManualPlayback]);
     // ── Render ──
 
     return (
         <div className="max-w-3xl mx-auto py-12 px-4">
             {/* Hidden audio elements for "done" phase preview */}
-            <audio ref={videoAudioRef} src={videoUrlRef.current} preload="auto" />
+            <audio ref={videoAudioRef} src={videoUrlRef.current} preload="auto" onTimeUpdate={(e) => {
+                if (e.currentTarget.currentTime >= MAX_DECODE_DURATION_S) {
+                    e.currentTarget.pause();
+                    if (externalAudioRef.current) externalAudioRef.current.pause();
+                    setIsPreviewPlaying(false);
+                }
+            }} />
             <audio ref={externalAudioRef} src={audioUrlRef.current} preload="auto" />
 
             {/* Hidden audio elements for manual mode playback */}
             {showManual && (
                 <>
-                    <audio ref={manualVideoAudioRef} src={manualVideoUrlRef.current} preload="auto" />
+                    <audio ref={manualVideoAudioRef} src={manualVideoUrlRef.current} preload="auto" onTimeUpdate={(e) => {
+                        if (e.currentTarget.currentTime >= MAX_DECODE_DURATION_S) {
+                            e.currentTarget.pause();
+                            if (manualExternalAudioRef.current) manualExternalAudioRef.current.pause();
+                            setIsManualPlaying(false);
+                        }
+                    }} />
                     <audio ref={manualExternalAudioRef} src={manualAudioUrlRef.current} preload="auto" />
                 </>
             )}
@@ -761,8 +984,8 @@ export const Step2Sync: React.FC = () => {
                                     <button
                                         onClick={handleManualPlayPause}
                                         className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition-all ${isManualPlaying
-                                                ? 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
-                                                : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-md shadow-blue-600/20'
+                                            ? 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
+                                            : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-md shadow-blue-600/20'
                                             }`}
                                     >
                                         {isManualPlaying ? <Pause size={16} /> : <Play size={16} />}
