@@ -16,13 +16,24 @@ function extractEnvelope(signal: Float32Array, sampleRate: number, targetEnvelop
     const envelopeLength = Math.floor(signal.length / samplesPerBlock);
     const envelope = new Float32Array(envelopeLength);
 
+    // Apply pre-emphasis to highlight transients/claps
+    let prevSample = 0;
+
     for (let i = 0; i < envelopeLength; i++) {
-        let sum = 0;
+        let maxAmp = 0;
         const offset = i * samplesPerBlock;
         for (let j = 0; j < samplesPerBlock; j++) {
-            sum += Math.abs(signal[offset + j]);
+            // First-order difference highlights high-frequency transients
+            const currentSample = signal[offset + j];
+            const diff = Math.abs(currentSample - prevSample);
+            prevSample = currentSample;
+
+            // Peak picking within the block preserves sharp spikes better than averaging
+            if (diff > maxAmp) {
+                maxAmp = diff;
+            }
         }
-        envelope[i] = sum / samplesPerBlock;
+        envelope[i] = maxAmp;
     }
 
     let mean = 0;
