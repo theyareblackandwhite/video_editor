@@ -1,17 +1,17 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Step1Input } from './components/steps/Step1Input/Step1Input';
-import { Step2Sync } from './components/steps/Step2Sync/Step2Sync';
-import { Step3Edit } from './components/steps/Step3Edit/Step3Edit';
-import { Step4Export } from './components/steps/Step4Export/Step4Export';
-import { useAppStore } from './store/useAppStore';
-import { ErrorBoundary } from './components/common/ErrorBoundary';
-import { StepBar } from './components/common/StepBar';
+import { MediaUpload } from './features/media-upload';
+import { AudioSync } from './features/audio-sync';
+import { TimelineEdit } from './features/timeline-edit';
+import { VideoExport } from './features/video-export';
+import { useAppStore } from './app/store';
+import { ErrorBoundary } from './shared/ui';
+import { StepBar } from './shared/ui';
 
 const StepComponents: Record<number, React.FC> = {
-  1: Step1Input,
-  2: Step2Sync,
-  3: Step3Edit,
-  4: Step4Export,
+  1: MediaUpload,
+  2: AudioSync,
+  3: TimelineEdit,
+  4: VideoExport,
 };
 
 function App() {
@@ -47,7 +47,7 @@ function App() {
     }
   }, [currentStep]);
 
-  const Component = StepComponents[displayedStep] || Step1Input;
+  const Component = StepComponents[displayedStep] || MediaUpload;
 
   // Animation classes
   const getTransformClass = () => {

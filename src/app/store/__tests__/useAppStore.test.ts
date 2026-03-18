@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useAppStore } from '../useAppStore';
+import { useAppStore } from '../index';
 
 describe('useAppStore', () => {
     beforeEach(() => {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getKeepSegments, buildFFmpegCommand } from '../ffmpegUtils';
-import type { CutSegment } from '../../store/useAppStore';
+import type { CutSegment } from '../../../../app/store';
 
 /* ─── getKeepSegments ─── */
 
