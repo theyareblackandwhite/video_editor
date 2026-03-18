@@ -60,6 +60,7 @@ export const Step2Sync: React.FC = () => {
     const dragStartX = useRef<number | null>(null);
     const draggingOffsetStart = useRef<number>(0);
     const audioOffsetRef = useRef(syncOffset);
+    const offsetTextRef = useRef<HTMLSpanElement>(null);
 
     // Create object URLs for playback and waveform rendering
     useEffect(() => {
@@ -311,15 +312,22 @@ export const Step2Sync: React.FC = () => {
         const deltaSeconds = deltaPixels / zoom;
         const newOffset = draggingOffsetStart.current + deltaSeconds;
         audioOffsetRef.current = newOffset;
-        setSyncOffset(newOffset);
         updateAudioVisualPosition(newOffset);
-    }, [zoom, setSyncOffset, updateAudioVisualPosition]);
+
+        if (offsetTextRef.current) {
+            const sign = newOffset >= 0 ? '+' : '';
+            offsetTextRef.current.innerText = `${sign}${newOffset.toFixed(3)}s`;
+        }
+    }, [zoom, updateAudioVisualPosition]);
 
     const handleMouseUp = useCallback(function onMouseUp() {
+        if (dragStartX.current !== null) {
+            setSyncOffset(audioOffsetRef.current);
+        }
         dragStartX.current = null;
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
-    }, [handleMouseMove]);
+    }, [handleMouseMove, setSyncOffset]);
 
     const handleMouseDown = (e: React.MouseEvent) => {
         dragStartX.current = e.clientX;
@@ -502,7 +510,7 @@ export const Step2Sync: React.FC = () => {
                         </div>
                         <div className="bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-100 text-center">
                             <span className="block text-[10px] text-gray-400 uppercase tracking-wider">Kayma</span>
-                            <span className="text-base font-mono font-bold text-blue-600">
+                            <span ref={offsetTextRef} className="text-base font-mono font-bold text-blue-600">
                                 {syncOffset >= 0 ? '+' : ''}{syncOffset.toFixed(3)}s
                             </span>
                         </div>
