@@ -138,6 +138,7 @@ describe('buildFFmpegCommand', () => {
         expect(args).toContain('copy');
         expect(args).not.toContain('libx264');
         expect(args).not.toContain('-filter_complex');
+        expect(args).toContain('-nostdin');
     });
 
     it('includes second input when external audio is present', () => {

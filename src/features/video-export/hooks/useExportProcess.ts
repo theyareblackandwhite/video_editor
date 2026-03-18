@@ -81,28 +81,47 @@ export function useExportProcess({
 
             const cmd = Command.create('ffmpeg', args);
             
+            let hasSeenTime = false;
+
             cmd.stderr.on('data', (line: string) => {
-                // parse: time=00:00:05.12
-                const match = line.match(/time=(\d+):(\d+):(\d+\.\d+)/);
+                // Parse FFmpeg output
+                // Example: time=00:00:05.12
+                // Sometimes time can be negative or weird: time=-577014:32:22.77
+                const match = line.match(/time=\s*(\d+):(\d+):(\d+\.\d+)/);
                 if (match) {
+                    hasSeenTime = true;
                     const h = parseInt(match[1], 10);
                     const m = parseInt(match[2], 10);
                     const s = parseFloat(match[3]);
                     const timeInSeconds = h * 3600 + m * 60 + s;
                     setProgress(Math.max(0, Math.min(1, timeInSeconds / duration)));
                 } else if (line.toLowerCase().includes('error')) {
-                    console.warn('FFmpeg stderr:', line);
+                    console.warn('FFmpeg stderr error:', line);
                 }
             });
 
+            // Start a safety timeout: if progress is fast (passthrough) or doesn't log time properly,
+            // we at least show fake progress or just wait for close.
+            // Stream copy runs too fast to reliably stream stderr sometimes.
+            const fakeProgressInterval = setInterval(() => {
+                if (!hasSeenTime) {
+                   setProgress(p => Math.min(0.9, p + 0.1));
+                }
+            }, 500);
+
             // Wait for command to close
-            const resultCode = await new Promise<number>((resolve, reject) => {
-                cmd.on('close', (data) => resolve(data.code ?? -1));
-                cmd.on('error', (err) => reject(new Error(`Command failure: ${err}`)));
-            });
+            let resultCode: number;
+            try {
+                resultCode = await new Promise<number>((resolve, reject) => {
+                    cmd.on('close', (data) => resolve(data.code ?? -1));
+                    cmd.on('error', (err) => reject(new Error(`Command failure: ${err}`)));
+                });
+            } finally {
+                clearInterval(fakeProgressInterval);
+            }
 
             if (resultCode !== 0) {
-                throw new Error(`FFmpeg error (code ${resultCode})`);
+                throw new Error(`FFmpeg error (code ${resultCode}). Lütfen konsolu kontrol edin.`);
             }
 
             setProgress(1);
