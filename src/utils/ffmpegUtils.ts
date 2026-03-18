@@ -1,4 +1,4 @@
-import type { CutSegment } from '../store/useAppStore';
+import type { CutSegment, LayoutMode, TransitionType, MediaFile } from '../store/useAppStore';
 
 export interface ExportConfig {
     format: 'mp4' | 'webm';
@@ -6,6 +6,8 @@ export interface ExportConfig {
     includeAudio: boolean;
     applyCuts: boolean;
     normalizeAudio: boolean;
+    layoutMode: LayoutMode;
+    transitionType: TransitionType;
 }
 
 /**
@@ -76,107 +78,225 @@ export const buildFFmpegCommand = (
     config: ExportConfig,
     cuts: CutSegment[],
     totalDuration: number,
-    syncOffset: number,
-    hasExternalAudio: boolean
+    videoFiles: MediaFile[],
+    audioFiles: MediaFile[],
+    masterVideoId: string
 ): string[] => {
     const args: string[] = [];
+    const filterComplex: string[] = [];
+
+    const otherVideos = videoFiles.filter(v => v.id !== masterVideoId);
 
     // 1. Inputs
-    args.push('-i', 'input_video');
-    if (config.includeAudio && hasExternalAudio) {
-        args.push('-i', 'input_audio');
+    // Master video is always input 0
+    args.push('-i', 'input_video_0');
+
+    // Other videos are inputs 1 to N
+    for (let i = 0; i < otherVideos.length; i++) {
+        args.push('-i', `input_video_${i + 1}`);
+    }
+
+    // Audio files are inputs N+1 to M
+    const audioInputOffset = 1 + otherVideos.length;
+    if (config.includeAudio) {
+        for (let i = 0; i < audioFiles.length; i++) {
+            args.push('-i', `input_audio_${i}`);
+        }
     }
 
     const segments = config.applyCuts ? getKeepSegments(cuts, totalDuration) : [{ start: 0, end: totalDuration }];
-    const filterComplex: string[] = [];
-
-    // --- Audio Pre-processing (Sync) ---
-    // Define the audio source label: [a_src]
-    let audioSource = '0:a';
-    if (config.includeAudio && hasExternalAudio) {
-        audioSource = '1:a';
-        // Apply sync offset
-        if (syncOffset !== 0) {
-            const delayMs = Math.round(Math.abs(syncOffset) * 1000);
-            if (syncOffset > 0) {
-                // Audio is late -> delay it
-                filterComplex.push(`[${audioSource}]adelay=${delayMs}|${delayMs}[a_synced]`);
-                audioSource = 'a_synced';
-            } else {
-                // Audio is early -> trim start
-                // Note: 'atrim' is better than -ss for complex filter graphs
-                filterComplex.push(`[${audioSource}]atrim=start=${Math.abs(syncOffset)}[a_synced]`);
-                // We also need to reset timestamps after trim
-                filterComplex.push(`[a_synced]asetpts=PTS-STARTPTS[a_synced_pts]`);
-                audioSource = 'a_synced_pts';
-            }
-        }
-    } else if (!config.includeAudio) {
-        // No audio requested
-        // (Handled later by not including audio stream in output map, or mapping dummy silence)
-        // But for now let's assume if includeAudio is false, we just mute or drop audio.
-        // If the user unchecks "Include External Audio" but there is video audio, we use video audio?
-        // The UI checkbox says "Harici sesi dahil et" (Include external audio).
-        // If unchecked, we fall back to video audio (0:a).
-        audioSource = '0:a';
-    }
-
-    // --- Cutting (Trimming) ---
-    // We need to trim both video and audio for each segment
-
     const n = segments.length;
 
-    // If audioSource is a filter output (not a file stream like "0:a") and we have multiple segments,
-    // we MUST split the stream because filter outputs cannot be consumed multiple times.
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    let getAudioSource: (index: number) => string = (index) => audioSource;
-    const isAudioFilterOutput = !/^\d+:a$/.test(audioSource);
+    // --- Video Pre-processing (Layout & Sync) ---
+    const videoStreams: string[] = [];
 
-    if (n > 1 && isAudioFilterOutput) {
-        // Split audio source into n streams: [a_src_0][a_src_1]...
-        const splitOutputs = Array.from({ length: n }, (_, i) => `[a_src_${i}]`).join('');
-        filterComplex.push(`[${audioSource}]asplit=${n}${splitOutputs}`);
-        getAudioSource = (i: number) => `a_src_${i}`;
+    if (otherVideos.length === 0) {
+        // Single video
+        videoStreams.push('0:v');
+    } else {
+        // Multiple videos side-by-side
+        // First, apply sync offset to other videos
+        const syncedVideos: string[] = ['[0:v]']; // master is always 0:v
+
+        otherVideos.forEach((v, i) => {
+            const inputIdx = i + 1;
+            const offset = v.syncOffset;
+            const syncedLabel = `v_synced_${inputIdx}`;
+
+            if (offset !== 0) {
+                if (offset > 0) {
+                    // Video is late -> delay it (ffmpeg tpad filter is good for this, or setpts)
+                    filterComplex.push(`[${inputIdx}:v]setpts=PTS+${offset}/TB[${syncedLabel}]`);
+                } else {
+                    // Video is early -> trim it
+                    filterComplex.push(`[${inputIdx}:v]trim=start=${Math.abs(offset)},setpts=PTS-STARTPTS[${syncedLabel}]`);
+                }
+                syncedVideos.push(`[${syncedLabel}]`);
+            } else {
+                syncedVideos.push(`[${inputIdx}:v]`);
+            }
+        });
+
+        // Stack them
+        const layoutOutput = 'v_layout';
+        const numVideos = syncedVideos.length;
+
+        // Hstack them all. For better results we should scale/crop them first so they have same height.
+        // For simplicity, let's use a standard 1080p target and scale/crop.
+        // If layoutMode is 'crop', we crop to fill half screen (if 2 videos), etc.
+        // For now, let's just use simple hstack which requires matching heights.
+        const scaledVideos = [];
+        for (let i = 0; i < numVideos; i++) {
+            const scaleLabel = `v_scale_${i}`;
+            // Simple scale to 720p height, preserving aspect ratio
+            if (config.layoutMode === 'crop') {
+                // Crop to square-ish then scale
+                filterComplex.push(`${syncedVideos[i]}scale=-1:720,crop=ih:ih:in_w/2-ih/2:0[${scaleLabel}]`);
+            } else {
+                filterComplex.push(`${syncedVideos[i]}scale=-1:720,pad=ih*16/9:ih:(ow-iw)/2:0[${scaleLabel}]`);
+            }
+            scaledVideos.push(`[${scaleLabel}]`);
+        }
+
+        filterComplex.push(`${scaledVideos.join('')}hstack=inputs=${numVideos}[${layoutOutput}]`);
+        videoStreams.push(`[${layoutOutput}]`);
     }
+
+    // --- Audio Pre-processing (Sync & Mix) ---
+    // Collect all audio sources
+    const audioStreams: string[] = [];
+
+    if (audioFiles.length === 0 || !config.includeAudio) {
+        // Fallback to master video audio if no external mics
+        audioStreams.push('0:a');
+    } else {
+        // We have external mics. Sync them.
+        audioFiles.forEach((a, i) => {
+            const inputIdx = audioInputOffset + i;
+            const offset = a.syncOffset;
+            const syncedLabel = `a_synced_${inputIdx}`;
+
+            if (offset !== 0) {
+                const delayMs = Math.round(Math.abs(offset) * 1000);
+                if (offset > 0) {
+                    filterComplex.push(`[${inputIdx}:a]adelay=${delayMs}|${delayMs}[${syncedLabel}]`);
+                } else {
+                    filterComplex.push(`[${inputIdx}:a]atrim=start=${Math.abs(offset)},asetpts=PTS-STARTPTS[${syncedLabel}]`);
+                }
+                audioStreams.push(`[${syncedLabel}]`);
+            } else {
+                audioStreams.push(`[${inputIdx}:a]`);
+            }
+        });
+    }
+
+    // Mix multiple audio streams into one if needed
+    let finalAudioSource = audioStreams[0]; // defaults to first
+    if (audioStreams.length > 1) {
+        finalAudioSource = '[a_mixed]';
+        filterComplex.push(`${audioStreams.join('')}amix=inputs=${audioStreams.length}:normalize=0${finalAudioSource}`);
+    } else {
+        // Ensure it has brackets if it's a filter output
+        if (!finalAudioSource.startsWith('[')) finalAudioSource = `[${finalAudioSource}]`;
+    }
+
+    // --- Split Audio for Segments if needed ---
+    let getAudioSource = (i?: number) => { void i; return finalAudioSource; }; // Keep parameter for compatibility
+    // We only need to split if it's a filter output (has brackets) AND n > 1
+    if (n > 1 && finalAudioSource.startsWith('[')) {
+        const splitOutputs = Array.from({ length: n }, (_, i) => `[a_src_${i}]`).join('');
+        filterComplex.push(`${finalAudioSource}asplit=${n}${splitOutputs}`);
+        getAudioSource = (i?: number) => `[a_src_${i ?? 0}]`;
+    }
+
+    // Same for video
+    let getVideoSource = (i?: number) => { void i; return videoStreams[0]; }; // Keep parameter for compatibility
+    if (n > 1 && videoStreams[0].startsWith('[')) {
+        const splitOutputs = Array.from({ length: n }, (_, i) => `[v_src_${i}]`).join('');
+        filterComplex.push(`${videoStreams[0]}split=${n}${splitOutputs}`);
+        getVideoSource = (i?: number) => `[v_src_${i ?? 0}]`;
+    }
+
 
     const segmentsToConcat: string[] = [];
 
+    // --- Trimming ---
     segments.forEach((seg, i) => {
         // Video Trim
-        // Input stream [0:v] can be reused multiple times without splitting
-        const vLabel = `v${i}`;
-        filterComplex.push(`[0:v]trim=start=${seg.start}:end=${seg.end},setpts=PTS-STARTPTS[${vLabel}]`);
+        const vSrc = getVideoSource(i);
+        const vLabel = `v_seg_${i}`;
+        // If it's a file input e.g. '0:v', wrap in brackets for the filter
+        const vInput = vSrc.startsWith('[') ? vSrc : `[${vSrc}]`;
+        filterComplex.push(`${vInput}trim=start=${seg.start}:end=${seg.end},setpts=PTS-STARTPTS[${vLabel}]`);
         segmentsToConcat.push(`[${vLabel}]`);
 
         // Audio Trim
-        const aLabel = `a${i}`;
-        const currentAudioSource = getAudioSource(i);
-
-        filterComplex.push(`[${currentAudioSource}]atrim=start=${seg.start}:end=${seg.end},asetpts=PTS-STARTPTS[${aLabel}]`);
+        const aSrc = getAudioSource(i);
+        const aLabel = `a_seg_${i}`;
+        const aInput = aSrc.startsWith('[') ? aSrc : `[${aSrc}]`;
+        filterComplex.push(`${aInput}atrim=start=${seg.start}:end=${seg.end},asetpts=PTS-STARTPTS[${aLabel}]`);
         segmentsToConcat.push(`[${aLabel}]`);
     });
 
-    // --- Concatenation ---
+    // --- Concatenation / Transitions ---
     const outV = 'v_out';
-    const outA = 'a_pre_norm'; // Output of concat, input to norm
+    const outA = 'a_pre_norm';
 
-    // Concat filter expects interleaved streams: [v0][a0][v1][a1]...
-    filterComplex.push(
-        `${segmentsToConcat.join('')}concat=n=${n}:v=1:a=1[${outV}][${outA}]`
-    );
+    if (config.transitionType === 'crossfade' && n > 1) {
+        // Crossfade logic
+        // xfade requires precise offset calculation.
+        // offset = sum(duration of previous segments) - (number of previous transitions * crossfade_duration)
+        const transitionDuration = 1.0; // 1 second crossfade
+
+        let currentVideoOutput = `[v_seg_0]`;
+        let currentAudioOutput = `[a_seg_0]`;
+
+        let accumulatedDuration = segments[0].end - segments[0].start;
+
+        for (let i = 1; i < n; i++) {
+            const segDuration = segments[i].end - segments[i].start;
+            const offset = accumulatedDuration - transitionDuration;
+
+            const nextVideoOut = i === n - 1 ? `[${outV}]` : `[v_xfade_${i}]`;
+            const nextAudioOut = i === n - 1 ? `[${outA}]` : `[a_xfade_${i}]`;
+
+            // We must format the offset so FFmpeg understands it (seconds)
+            const offsetStr = Math.max(0, offset).toFixed(3);
+
+            // Video crossfade
+            filterComplex.push(`${currentVideoOutput}[v_seg_${i}]xfade=transition=fade:duration=${transitionDuration}:offset=${offsetStr}${nextVideoOut}`);
+
+            // Audio crossfade
+            // acrossfade works slightly differently, it crossfades between two streams.
+            // Note: acrossfade filter applies to the *end* of the first stream and *start* of second.
+            // d = duration of crossfade
+            filterComplex.push(`${currentAudioOutput}[a_seg_${i}]acrossfade=d=${transitionDuration}${nextAudioOut}`);
+
+            currentVideoOutput = nextVideoOut;
+            currentAudioOutput = nextAudioOut;
+
+            // Accumulated duration grows by the new segment minus the overlap
+            accumulatedDuration += segDuration - transitionDuration;
+        }
+
+    } else {
+        filterComplex.push(`${segmentsToConcat.join('')}concat=n=${n}:v=1:a=1[${outV}][${outA}]`);
+    }
 
     // --- Loudness Normalization ---
-    let finalAudio = outA;
+    let finalAudio = `[${outA}]`;
     if (config.normalizeAudio) {
-        finalAudio = 'a_out';
-        filterComplex.push(`[${outA}]loudnorm=I=-16:TP=-1.5:LRA=11[${finalAudio}]`);
+        finalAudio = '[a_out]';
+        filterComplex.push(`[${outA}]loudnorm=I=-16:TP=-1.5:LRA=11${finalAudio}`);
     }
 
     // Add filter complex to args
-    args.push('-filter_complex', filterComplex.join(';'));
+    if (filterComplex.length > 0) {
+        args.push('-filter_complex', filterComplex.join(';'));
+    }
 
     // Map outputs
-    args.push('-map', `[${outV}]`, '-map', `[${finalAudio}]`);
+    args.push('-map', `[${outV}]`, '-map', finalAudio);
 
     // --- Encoding Settings ---
     if (config.format === 'mp4') {

@@ -7,20 +7,22 @@ describe('useAppStore', () => {
         const { setState } = useAppStore;
         setState({
             currentStep: 1,
-            videoFile: null,
-            audioFile: null,
-            syncOffset: 0,
+            videoFiles: [],
+            audioFiles: [],
             cuts: [],
+            layoutMode: 'crop',
+            transitionType: 'none',
         });
     });
 
     it('has correct initial state', () => {
         const state = useAppStore.getState();
         expect(state.currentStep).toBe(1);
-        expect(state.videoFile).toBeNull();
-        expect(state.audioFile).toBeNull();
-        expect(state.syncOffset).toBe(0);
+        expect(state.videoFiles).toEqual([]);
+        expect(state.audioFiles).toEqual([]);
         expect(state.cuts).toEqual([]);
+        expect(state.layoutMode).toBe('crop');
+        expect(state.transitionType).toBe('none');
     });
 
     it('setStep updates currentStep', () => {
@@ -28,14 +30,29 @@ describe('useAppStore', () => {
         expect(useAppStore.getState().currentStep).toBe(3);
     });
 
-    it('setSyncOffset updates syncOffset', () => {
-        useAppStore.getState().setSyncOffset(1.5);
-        expect(useAppStore.getState().syncOffset).toBe(1.5);
+    it('handles video files', () => {
+        const mockVideo = new File([''], 'test.mp4', { type: 'video/mp4' });
+        useAppStore.getState().addVideoFile(mockVideo);
+        expect(useAppStore.getState().videoFiles[0].file).toBe(mockVideo);
+        expect(useAppStore.getState().videoFiles[0].isMaster).toBe(true);
+
+        const mockVideo2 = new File([''], 'test2.mp4', { type: 'video/mp4' });
+        useAppStore.getState().addVideoFile(mockVideo2);
+        expect(useAppStore.getState().videoFiles).toHaveLength(2);
+        expect(useAppStore.getState().videoFiles[1].isMaster).toBeFalsy();
     });
 
-    it('setSyncOffset handles negative values', () => {
-        useAppStore.getState().setSyncOffset(-2.3);
-        expect(useAppStore.getState().syncOffset).toBeCloseTo(-2.3);
+    it('handles audio files', () => {
+        const mockAudio = new File([''], 'test.mp3', { type: 'audio/mp3' });
+        useAppStore.getState().addAudioFile(mockAudio);
+        expect(useAppStore.getState().audioFiles[0].file).toBe(mockAudio);
+    });
+
+    it('setVideoSyncOffset updates syncOffset', () => {
+        useAppStore.getState().addVideoFile(new File([''], 't.mp4'));
+        const id = useAppStore.getState().videoFiles[0].id;
+        useAppStore.getState().setVideoSyncOffset(id, 1.5);
+        expect(useAppStore.getState().videoFiles[0].syncOffset).toBe(1.5);
     });
 
     it('setCuts stores and retrieves cut array', () => {
@@ -55,15 +72,4 @@ describe('useAppStore', () => {
         expect(cuts[0].id).toBe('c2');
     });
 
-    it('multiple updates compose correctly', () => {
-        const { setStep, setSyncOffset, setCuts } = useAppStore.getState();
-        setStep(2);
-        setSyncOffset(3.14);
-        setCuts([{ id: 'x', start: 1, end: 2 }]);
-
-        const state = useAppStore.getState();
-        expect(state.currentStep).toBe(2);
-        expect(state.syncOffset).toBeCloseTo(3.14);
-        expect(state.cuts).toHaveLength(1);
-    });
 });

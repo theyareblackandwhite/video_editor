@@ -6,24 +6,36 @@
  */
 
 /* ── Constants (duplicated from autoSync.ts to keep worker self-contained) ── */
-const TARGET_SAMPLE_RATE = 8000;
+const ENVELOPE_RATE = 100;
 const ANALYSIS_CHUNK_SECONDS = 30;
 
 /* ── Pure functions (same as autoSync.ts exports) ── */
 
-function normalize(signal: Float32Array): Float32Array {
-    let max = 0;
-    for (let i = 0; i < signal.length; i++) {
-        const abs = Math.abs(signal[i]);
-        if (abs > max) max = abs;
-    }
-    if (max === 0) return signal;
+function extractEnvelope(signal: Float32Array, sampleRate: number, targetEnvelopeRate: number = 100): Float32Array {
+    const samplesPerBlock = Math.floor(sampleRate / targetEnvelopeRate);
+    const envelopeLength = Math.floor(signal.length / samplesPerBlock);
+    const envelope = new Float32Array(envelopeLength);
 
-    const result = new Float32Array(signal.length);
-    for (let i = 0; i < signal.length; i++) {
-        result[i] = signal[i] / max;
+    for (let i = 0; i < envelopeLength; i++) {
+        let sum = 0;
+        const offset = i * samplesPerBlock;
+        for (let j = 0; j < samplesPerBlock; j++) {
+            sum += Math.abs(signal[offset + j]);
+        }
+        envelope[i] = sum / samplesPerBlock;
     }
-    return result;
+
+    let mean = 0;
+    for (let i = 0; i < envelope.length; i++) {
+        mean += envelope[i];
+    }
+    mean /= envelope.length;
+
+    for (let i = 0; i < envelope.length; i++) {
+        envelope[i] -= mean;
+    }
+
+    return envelope;
 }
 
 function computeCorrelation(
@@ -31,17 +43,17 @@ function computeCorrelation(
     target: Float32Array,
     lag: number
 ): number {
-    let sum = 0;
-    let count = 0;
+    const start = Math.max(0, -lag);
+    const end = Math.min(ref.length, target.length - lag);
 
-    for (let i = 0; i < ref.length; i++) {
-        const targetIdx = i + lag;
-        if (targetIdx < 0 || targetIdx >= target.length) continue;
-        sum += ref[i] * target[targetIdx];
-        count++;
+    if (start >= end) return 0;
+
+    let sum = 0;
+    for (let i = start; i < end; i++) {
+        sum += ref[i] * target[i + lag];
     }
 
-    return count > 0 ? sum / count : 0;
+    return sum / (end - start);
 }
 
 function findBestLag(
@@ -49,22 +61,21 @@ function findBestLag(
     target: Float32Array,
     maxLagSamples: number
 ): { bestLag: number; confidence: number } {
+
     const chunkSize = Math.min(
         reference.length,
         target.length,
-        TARGET_SAMPLE_RATE * ANALYSIS_CHUNK_SECONDS
+        ENVELOPE_RATE * ANALYSIS_CHUNK_SECONDS
     );
     const refChunk = reference.slice(0, chunkSize);
 
     let bestCorrelation = -Infinity;
     let bestLag = 0;
+
     let sumCorrelations = 0;
     let correlationCount = 0;
 
-    const step = Math.max(1, Math.floor(maxLagSamples / 2000));
-
-    // Phase 1: Coarse search
-    for (let lag = -maxLagSamples; lag <= maxLagSamples; lag += step) {
+    for (let lag = -maxLagSamples; lag <= maxLagSamples; lag++) {
         const corr = computeCorrelation(refChunk, target, lag);
         sumCorrelations += Math.abs(corr);
         correlationCount++;
@@ -75,21 +86,9 @@ function findBestLag(
         }
     }
 
-    // Phase 2: Fine search around best coarse candidate
-    const fineRange = step * 2;
-    for (let lag = bestLag - fineRange; lag <= bestLag + fineRange; lag++) {
-        if (lag < -maxLagSamples || lag > maxLagSamples) continue;
-        const corr = computeCorrelation(refChunk, target, lag);
-
-        if (corr > bestCorrelation) {
-            bestCorrelation = corr;
-            bestLag = lag;
-        }
-    }
-
     const avgCorrelation = sumCorrelations / correlationCount;
     const confidence = avgCorrelation > 0
-        ? Math.min(1, bestCorrelation / (avgCorrelation * 3))
+        ? Math.min(1, bestCorrelation / (avgCorrelation * 5))
         : 0;
 
     return { bestLag, confidence };
@@ -112,16 +111,16 @@ export interface SyncWorkerOutput {
 self.onmessage = (e: MessageEvent<SyncWorkerInput>) => {
     const { videoSamples, audioSamples, maxOffsetSeconds, sampleRate } = e.data;
 
-    // Step 1: Normalize
-    const normVideo = normalize(videoSamples);
-    const normAudio = normalize(audioSamples);
+    // Step 1: Extract zero-mean envelope
+    const envVideo = extractEnvelope(videoSamples, sampleRate, ENVELOPE_RATE);
+    const envAudio = extractEnvelope(audioSamples, sampleRate, ENVELOPE_RATE);
 
     // Step 2: Cross-correlate
-    const maxLagSamples = Math.floor(maxOffsetSeconds * sampleRate);
-    const { bestLag, confidence } = findBestLag(normVideo, normAudio, maxLagSamples);
+    const maxLagSamples = Math.floor(maxOffsetSeconds * ENVELOPE_RATE);
+    const { bestLag, confidence } = findBestLag(envVideo, envAudio, maxLagSamples);
 
     // Step 3: Convert to seconds
-    const offsetSeconds = bestLag / sampleRate;
+    const offsetSeconds = bestLag / ENVELOPE_RATE;
 
     const result: SyncWorkerOutput = { offsetSeconds, confidence };
     self.postMessage(result);

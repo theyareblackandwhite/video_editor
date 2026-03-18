@@ -23,8 +23,11 @@ function App() {
 
   useEffect(() => {
     if (currentStep !== prevStepRef.current) {
-      requestAnimationFrame(() => {
-        setDirection(currentStep > prevStepRef.current ? 'right' : 'left');
+      // Defer state updates to avoid React's set-state-in-effect warning
+      const direction = currentStep > prevStepRef.current ? 'right' : 'left';
+
+      queueMicrotask(() => {
+        setDirection(direction);
         setAnimating(true);
       });
 

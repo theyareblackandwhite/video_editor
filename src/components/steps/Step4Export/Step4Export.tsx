@@ -5,29 +5,19 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../../../store/useAppStore';
 import { useFFmpeg } from '../../../hooks/useFFmpeg';
-import { buildFFmpegCommand } from '../../../utils/ffmpegUtils';
+import { buildFFmpegCommand, type ExportConfig } from '../../../utils/ffmpegUtils';
 import { fetchFile } from '@ffmpeg/util';
 
 /* ── Types ── */
-type ExportFormat = 'mp4' | 'webm';
-type ExportQuality = 'high' | 'medium' | 'low';
 type ExportPhase = 'config' | 'processing' | 'done';
 
-interface ExportConfig {
-    format: ExportFormat;
-    quality: ExportQuality;
-    includeAudio: boolean;
-    applyCuts: boolean;
-    normalizeAudio: boolean;
-}
-
-const QUALITY_LABELS: Record<ExportQuality, { label: string; desc: string; icon: string }> = {
+const QUALITY_LABELS: Record<ExportConfig['quality'], { label: string; desc: string; icon: string }> = {
     high: { label: 'Yüksek Kalite', desc: 'Orijinal çözünürlük, büyük dosya', icon: '🎬' },
     medium: { label: 'Orta Kalite', desc: 'Dengeli boyut ve kalite', icon: '📹' },
     low: { label: 'Düşük Kalite', desc: 'Hızlı dışa aktarım, küçük dosya', icon: '📱' },
 };
 
-const FORMAT_LABELS: Record<ExportFormat, { label: string; desc: string }> = {
+const FORMAT_LABELS: Record<ExportConfig['format'], { label: string; desc: string }> = {
     mp4: { label: 'MP4 (H.264)', desc: 'En yaygın format, her yerde oynatılır' },
     webm: { label: 'WebM (VP9)', desc: 'Web dostu, küçük boyut' },
 };
@@ -44,16 +34,20 @@ const fmtSize = (bytes: number) => {
 };
 
 export const Step4Export: React.FC = () => {
-    const { videoFile, audioFile, syncOffset, cuts, setStep } = useAppStore();
+    const { videoFiles, audioFiles, cuts, layoutMode, transitionType, setStep } = useAppStore();
     const { ffmpeg, load, isLoaded, isLoading: isFfmpegLoading, message: ffmpegMessage } = useFFmpeg();
+
+    const masterVideo = videoFiles.find(v => v.isMaster) || videoFiles[0];
 
     const [phase, setPhase] = useState<ExportPhase>('config');
     const [config, setConfig] = useState<ExportConfig>({
         format: 'mp4',
         quality: 'high',
-        includeAudio: !!audioFile,
+        includeAudio: audioFiles.length > 0,
         applyCuts: cuts.length > 0,
         normalizeAudio: true,
+        layoutMode,
+        transitionType
     });
     const [progress, setProgress] = useState(0);
     const [progressLabel, setProgressLabel] = useState('');
@@ -86,13 +80,14 @@ export const Step4Export: React.FC = () => {
     }, [phase]);
 
     /* ── Estimated file size ── */
-    const estimatedSize = videoFile
+    const estimatedSize = masterVideo
         ? (() => {
-            const baseSize = videoFile.size;
+            // Rough estimate based on master video and number of additional videos
+            const baseSize = masterVideo.file.size * (1 + (videoFiles.length - 1) * 0.5);
             const qualityMultiplier = config.quality === 'high' ? 1 : config.quality === 'medium' ? 0.6 : 0.3;
             const formatMultiplier = config.format === 'webm' ? 0.7 : 1;
             let cutReduction = 1;
-            if (config.applyCuts && cuts.length > 0 && videoFile) {
+            if (config.applyCuts && cuts.length > 0) {
                 cutReduction = 0.8; // Rough estimate
             }
             return Math.round(baseSize * qualityMultiplier * formatMultiplier * cutReduction);
@@ -101,7 +96,7 @@ export const Step4Export: React.FC = () => {
 
     /* ── Export handler ── */
     const handleExport = useCallback(async () => {
-        if (!videoFile || !isLoaded) return;
+        if (!masterVideo || !isLoaded) return;
 
         setPhase('processing');
         setProgress(0);
@@ -109,25 +104,37 @@ export const Step4Export: React.FC = () => {
         setProgressLabel('FFmpeg başlatılıyor...');
 
         try {
-            // 1. Get Video Duration
+            // 1. Get Master Video Duration
             setProgressLabel('Video analiz ediliyor...');
             const tempVideo = document.createElement('video');
-            tempVideo.src = URL.createObjectURL(videoFile);
+            tempVideo.src = URL.createObjectURL(masterVideo.file);
             await new Promise((resolve) => {
                 tempVideo.onloadedmetadata = resolve;
             });
             const duration = tempVideo.duration;
+            URL.revokeObjectURL(tempVideo.src);
 
             // 2. Write Files
             setProgressLabel('Dosyalar belleğe yükleniyor...');
-            await ffmpeg.writeFile('input_video', await fetchFile(videoFile));
 
-            if (config.includeAudio && audioFile) {
-                await ffmpeg.writeFile('input_audio', await fetchFile(audioFile));
+            // Write master video as index 0
+            await ffmpeg.writeFile('input_video_0', await fetchFile(masterVideo.file));
+
+            // Write other videos
+            const otherVideos = videoFiles.filter(v => v.id !== masterVideo.id);
+            for (let i = 0; i < otherVideos.length; i++) {
+                await ffmpeg.writeFile(`input_video_${i + 1}`, await fetchFile(otherVideos[i].file));
+            }
+
+            // Write audio files
+            if (config.includeAudio) {
+                for (let i = 0; i < audioFiles.length; i++) {
+                    await ffmpeg.writeFile(`input_audio_${i}`, await fetchFile(audioFiles[i].file));
+                }
             }
 
             // 3. Build Command
-            const args = buildFFmpegCommand(config, cuts, duration, syncOffset, !!audioFile);
+            const args = buildFFmpegCommand(config, cuts, duration, videoFiles, audioFiles, masterVideo.id);
             console.log('FFmpeg Command:', args.join(' '));
 
             // 4. Execute
@@ -145,7 +152,7 @@ export const Step4Export: React.FC = () => {
             const outputFilename = `output.${config.format}`;
             const data = await ffmpeg.readFile(outputFilename);
             // Cast data to any to handle SharedArrayBuffer type mismatch
-            const blob = new Blob([data as unknown as BlobPart], { type: `video/${config.format}` });
+            const blob = new Blob([data as Uint8Array], { type: `video/${config.format}` });
             const url = URL.createObjectURL(blob);
 
             setOutputBlob(blob);
@@ -153,11 +160,17 @@ export const Step4Export: React.FC = () => {
             setPhase('done');
 
             // 6. Cleanup
-            // We keep the file in memory until user leaves step or re-exports?
-            // Better to clean input files now to save memory.
             try {
-                await ffmpeg.deleteFile('input_video');
-                if (config.includeAudio && audioFile) await ffmpeg.deleteFile('input_audio');
+                await ffmpeg.deleteFile('input_video_0');
+                const otherVideos = videoFiles.filter(v => v.id !== masterVideo.id);
+                for (let i = 0; i < otherVideos.length; i++) {
+                    await ffmpeg.deleteFile(`input_video_${i + 1}`);
+                }
+                if (config.includeAudio) {
+                    for (let i = 0; i < audioFiles.length; i++) {
+                        await ffmpeg.deleteFile(`input_audio_${i}`);
+                    }
+                }
                 await ffmpeg.deleteFile(outputFilename);
             } catch (cleanupErr) {
                 console.warn('Cleanup warning:', cleanupErr);
@@ -168,18 +181,18 @@ export const Step4Export: React.FC = () => {
             setPhase('config');
             alert(`Dışa aktarım başarısız oldu: ${e instanceof Error ? e.message : 'Bilinmeyen hata'}`);
         }
-    }, [videoFile, audioFile, config, cuts, syncOffset, isLoaded, ffmpeg]);
+    }, [videoFiles, audioFiles, masterVideo, config, cuts, isLoaded, ffmpeg]);
 
     /* ── Download ── */
     const handleDownload = useCallback(() => {
-        if (!outputUrl || !videoFile) return;
-        const name = videoFile.name.replace(/\.[^/.]+$/, '');
+        if (!outputUrl || !masterVideo) return;
+        const name = masterVideo.file.name.replace(/\.[^/.]+$/, '');
         const ext = config.format;
         const a = document.createElement('a');
         a.href = outputUrl;
         a.download = `${name}_podcut.${ext}`;
         a.click();
-    }, [outputUrl, config.format, videoFile]);
+    }, [outputUrl, config.format, masterVideo]);
 
     /* ── Render ── */
     return (
@@ -226,7 +239,7 @@ export const Step4Export: React.FC = () => {
                                     <h3 className="font-semibold text-gray-800">Video Formatı</h3>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">
-                                    {(Object.entries(FORMAT_LABELS) as [ExportFormat, typeof FORMAT_LABELS['mp4']][]).map(([key, val]) => (
+                                    {(Object.entries(FORMAT_LABELS) as [ExportConfig['format'], typeof FORMAT_LABELS['mp4']][]).map(([key, val]) => (
                                         <button
                                             key={key}
                                             onClick={() => setConfig(c => ({ ...c, format: key }))}
@@ -252,7 +265,7 @@ export const Step4Export: React.FC = () => {
                                     <h3 className="font-semibold text-gray-800">Kalite</h3>
                                 </div>
                                 <div className="grid grid-cols-3 gap-3">
-                                    {(Object.entries(QUALITY_LABELS) as [ExportQuality, typeof QUALITY_LABELS['high']][]).map(([key, val]) => (
+                                    {(Object.entries(QUALITY_LABELS) as [ExportConfig['quality'], typeof QUALITY_LABELS['high']][]).map(([key, val]) => (
                                         <button
                                             key={key}
                                             onClick={() => setConfig(c => ({ ...c, quality: key }))}
@@ -276,13 +289,13 @@ export const Step4Export: React.FC = () => {
                                     <h3 className="font-semibold text-gray-800">Seçenekler</h3>
                                 </div>
                                 <div className="space-y-3">
-                                    {audioFile && (
+                                    {audioFiles.length > 0 && (
                                         <label className="flex items-center justify-between p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors">
                                             <div className="flex items-center gap-3">
                                                 <Volume2 size={16} className="text-gray-500" />
                                                 <div>
                                                     <span className="text-sm font-medium text-gray-800">Harici sesi dahil et</span>
-                                                    <span className="text-xs text-gray-400 block">Senkronize edilen mikrofon kaydı</span>
+                                                    <span className="text-xs text-gray-400 block">{audioFiles.length} mikrofon kaydı</span>
                                                 </div>
                                             </div>
                                             <input
@@ -294,21 +307,41 @@ export const Step4Export: React.FC = () => {
                                         </label>
                                     )}
                                     {cuts.length > 0 && (
-                                        <label className="flex items-center justify-between p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors">
-                                            <div className="flex items-center gap-3">
-                                                <FileVideo size={16} className="text-gray-500" />
-                                                <div>
-                                                    <span className="text-sm font-medium text-gray-800">Kesimleri uygula</span>
-                                                    <span className="text-xs text-gray-400 block">{cuts.length} kesim bölümü çıkarılacak</span>
+                                        <div className="space-y-2">
+                                            <label className="flex items-center justify-between p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors">
+                                                <div className="flex items-center gap-3">
+                                                    <FileVideo size={16} className="text-gray-500" />
+                                                    <div>
+                                                        <span className="text-sm font-medium text-gray-800">Kesimleri uygula</span>
+                                                        <span className="text-xs text-gray-400 block">{cuts.length} kesim bölümü çıkarılacak</span>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                            <input
-                                                type="checkbox"
-                                                checked={config.applyCuts}
-                                                onChange={e => setConfig(c => ({ ...c, applyCuts: e.target.checked }))}
-                                                className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500"
-                                            />
-                                        </label>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={config.applyCuts}
+                                                    onChange={e => setConfig(c => ({ ...c, applyCuts: e.target.checked }))}
+                                                    className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500"
+                                                />
+                                            </label>
+
+                                            {config.applyCuts && (
+                                                <label className="flex items-center justify-between p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors ml-4 border-l-2 border-blue-500">
+                                                    <div className="flex items-center gap-3">
+                                                        <Sparkles size={16} className="text-gray-500" />
+                                                        <div>
+                                                            <span className="text-sm font-medium text-gray-800">Yumuşak Geçiş (Crossfade)</span>
+                                                            <span className="text-xs text-gray-400 block">Kesimler arasına yumuşak geçiş ekle</span>
+                                                        </div>
+                                                    </div>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={config.transitionType === 'crossfade'}
+                                                        onChange={e => setConfig(c => ({ ...c, transitionType: e.target.checked ? 'crossfade' : 'none' }))}
+                                                        className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500"
+                                                    />
+                                                </label>
+                                            )}
+                                        </div>
                                     )}
                                     {/* Loudness Normalization */}
                                     <label className="flex items-center justify-between p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors">
@@ -339,7 +372,7 @@ export const Step4Export: React.FC = () => {
                                     <div className="flex justify-between text-sm">
                                         <span className="text-gray-500">Kaynak</span>
                                         <span className="font-medium text-gray-800 truncate max-w-[150px]">
-                                            {videoFile?.name || '—'}
+                                            {masterVideo?.file.name || '—'} {videoFiles.length > 1 && `(+${videoFiles.length - 1} kamera)`}
                                         </span>
                                     </div>
                                     <div className="flex justify-between text-sm">
@@ -350,11 +383,11 @@ export const Step4Export: React.FC = () => {
                                         <span className="text-gray-500">Kalite</span>
                                         <span className="font-medium text-gray-800">{QUALITY_LABELS[config.quality].label}</span>
                                     </div>
-                                    {audioFile && (
+                                    {audioFiles.length > 0 && (
                                         <div className="flex justify-between text-sm">
                                             <span className="text-gray-500">Harici ses</span>
                                             <span className={`font-medium ${config.includeAudio ? 'text-green-600' : 'text-gray-400'}`}>
-                                                {config.includeAudio ? 'Dahil' : 'Hariç'}
+                                                {config.includeAudio ? `${audioFiles.length} dahil` : 'Hariç'}
                                             </span>
                                         </div>
                                     )}
@@ -363,14 +396,6 @@ export const Step4Export: React.FC = () => {
                                             <span className="text-gray-500">Kesimler</span>
                                             <span className={`font-medium ${config.applyCuts ? 'text-green-600' : 'text-gray-400'}`}>
                                                 {config.applyCuts ? `${cuts.length} bölüm` : 'Uygulanmayacak'}
-                                            </span>
-                                        </div>
-                                    )}
-                                    {syncOffset !== 0 && (
-                                        <div className="flex justify-between text-sm">
-                                            <span className="text-gray-500">Ses kaydırma</span>
-                                            <span className="font-mono font-medium text-blue-600">
-                                                {syncOffset >= 0 ? '+' : ''}{syncOffset.toFixed(3)}s
                                             </span>
                                         </div>
                                     )}

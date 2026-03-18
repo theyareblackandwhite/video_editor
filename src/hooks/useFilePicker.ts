@@ -36,8 +36,7 @@ export const useFilePicker = ({ accept, type }: UseFilePickerOptions): UseFilePi
             // Check if File System Access API is supported
             if ('showOpenFilePicker' in window) {
                 try {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const handles = await (window as any).showOpenFilePicker({
+                    const handles = await (window as unknown as { showOpenFilePicker: (options: unknown) => Promise<Array<{ getFile: () => Promise<File> }>> }).showOpenFilePicker({
                         types: [
                             {
                                 description: 'Media Files',

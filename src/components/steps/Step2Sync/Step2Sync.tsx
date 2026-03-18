@@ -1,18 +1,45 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Wand2, Play, Pause, ChevronLeft, ChevronRight, CheckCircle, AlertCircle, Settings2, Loader2, ZoomIn, ZoomOut, SkipBack } from 'lucide-react';
+import { Wand2, Play, Pause, ChevronLeft, ChevronRight, CheckCircle, AlertCircle, Settings2, Loader2, ZoomIn, ZoomOut, SkipBack, FileVideo, FileAudio } from 'lucide-react';
 import { useAppStore } from '../../../store/useAppStore';
 import { useAutoSync } from '../../../hooks/useAutoSync';
 import { decodeToMono, TARGET_SAMPLE_RATE } from '../../../utils/autoSync';
 import { MAX_DECODE_DURATION_S } from '../../../utils/fileValidation';
 
 export const Step2Sync: React.FC = () => {
-    const { videoFile, audioFile, setSyncOffset, syncOffset, setStep } = useAppStore();
-    const { phase, progress, result, error, runSync, reset } = useAutoSync();
+    const {
+        videoFiles, audioFiles,
+        setVideoSyncOffset, setAudioSyncOffset,
+        setStep
+    } = useAppStore();
+    const { phase, progress, results, error, runSyncMultiple, reset } = useAutoSync();
+
+    const masterVideo = videoFiles.find(v => v.isMaster) || videoFiles[0];
+
+    // Memoize target files to avoid dependency array issues
+    const targetFiles = React.useMemo(() => [
+        ...videoFiles.filter(v => v.id !== masterVideo?.id),
+        ...audioFiles
+    ], [videoFiles, audioFiles, masterVideo?.id]);
 
     const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
     const [showManual, setShowManual] = useState(false);
     const [zoom, setZoom] = useState(50);
+    const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
+
+    // Get the currently selected target file for manual editing
+    const selectedTarget = targetFiles.find(f => f.id === selectedTargetId) || targetFiles[0];
+    const isSelectedVideo = videoFiles.some(v => v.id === selectedTarget?.id);
+
+    const setSyncOffset = useCallback((offset: number) => {
+        if (!selectedTarget) return;
+        if (isSelectedVideo) {
+            setVideoSyncOffset(selectedTarget.id, offset);
+        } else {
+            setAudioSyncOffset(selectedTarget.id, offset);
+        }
+    }, [isSelectedVideo, selectedTarget, setVideoSyncOffset, setAudioSyncOffset]);
+    const syncOffset = selectedTarget?.syncOffset || 0;
 
     // Manual mode playback state
     const [isManualPlaying, setIsManualPlaying] = useState(false);
@@ -53,6 +80,207 @@ export const Step2Sync: React.FC = () => {
     const draggingOffsetStart = useRef<number>(0);
     const audioOffsetRef = useRef(syncOffset);
 
+    // Create object URLs for done-phase preview playback
+    useEffect(() => {
+        if (masterVideo?.file) {
+            videoUrlRef.current = URL.createObjectURL(masterVideo.file);
+        }
+        if (selectedTarget?.file) {
+            audioUrlRef.current = URL.createObjectURL(selectedTarget.file);
+        }
+        return () => {
+            if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
+            if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+        };
+    }, [masterVideo, selectedTarget]);
+
+    // Create object URLs for manual mode playback
+    useEffect(() => {
+        if (!showManual) return;
+        if (masterVideo?.file) {
+            manualVideoUrlRef.current = URL.createObjectURL(masterVideo.file);
+        }
+        if (selectedTarget?.file) {
+            manualAudioUrlRef.current = URL.createObjectURL(selectedTarget.file);
+        }
+        return () => {
+            if (manualVideoUrlRef.current) { URL.revokeObjectURL(manualVideoUrlRef.current); manualVideoUrlRef.current = ''; }
+            if (manualAudioUrlRef.current) { URL.revokeObjectURL(manualAudioUrlRef.current); manualAudioUrlRef.current = ''; }
+        };
+    }, [showManual, masterVideo, selectedTarget]);
+
+    // Apply sync result to store
+    useEffect(() => {
+        if (results.length > 0) {
+            results.forEach(res => {
+                // Find if target is a video
+                const isVideo = videoFiles.some(v => v.id === res.id);
+                if (isVideo) {
+                    // We shouldn't dispatch to store in an effect like this if we can avoid it.
+                    // But we only want to update once when results arrive.
+                    // Let's check current offset so we don't dispatch continuously
+                    const vFile = videoFiles.find(v => v.id === res.id);
+                    if (vFile && vFile.syncOffset !== res.offsetSeconds) {
+                         setVideoSyncOffset(res.id, res.offsetSeconds);
+                    }
+                } else {
+                    const aFile = audioFiles.find(a => a.id === res.id);
+                    if (aFile && aFile.syncOffset !== res.offsetSeconds) {
+                        setAudioSyncOffset(res.id, res.offsetSeconds);
+                    }
+                }
+            });
+
+            // Set first target as selected by default
+            if (!selectedTargetId && targetFiles.length > 0) {
+                setSelectedTargetId(targetFiles[0].id);
+            }
+        }
+    }, [results, videoFiles, audioFiles, setVideoSyncOffset, setAudioSyncOffset, selectedTargetId, targetFiles]);
+
+    // Update ref when selected target changes manually
+    useEffect(() => {
+        if (selectedTarget) {
+            audioOffsetRef.current = selectedTarget.syncOffset;
+        }
+    }, [selectedTarget]);
+
+    // ── Preview Waveforms (read-only, shown in done state) ──
+    useEffect(() => {
+        if (phase !== 'done' || !masterVideo || !selectedTarget) return;
+        if (!previewVideoContainer.current || !previewAudioContainer.current) return;
+
+        // Cleanup
+        if (previewVideoWs.current) { previewVideoWs.current.destroy(); previewVideoWs.current = null; }
+        if (previewAudioWs.current) { previewAudioWs.current.destroy(); previewAudioWs.current = null; }
+
+        const videoUrl = URL.createObjectURL(masterVideo.file);
+        const audioUrl = URL.createObjectURL(selectedTarget.file);
+
+        try {
+            previewVideoWs.current = WaveSurfer.create({
+                container: previewVideoContainer.current,
+                waveColor: '#6366F1',
+                progressColor: '#4338CA',
+                cursorColor: 'transparent',
+                height: 64,
+                normalize: true,
+                interact: false,
+                hideScrollbar: true,
+                barWidth: 2,
+                barGap: 1,
+                barRadius: 2,
+            });
+            previewVideoWs.current.load(videoUrl);
+
+            previewAudioWs.current = WaveSurfer.create({
+                container: previewAudioContainer.current,
+                waveColor: '#10B981',
+                progressColor: '#059669',
+                cursorColor: 'transparent',
+                height: 64,
+                normalize: true,
+                interact: false,
+                hideScrollbar: true,
+                barWidth: 2,
+                barGap: 1,
+                barRadius: 2,
+            });
+            previewAudioWs.current.load(audioUrl);
+        } catch (e) {
+            console.error('Preview waveform error:', e);
+        }
+
+        return () => {
+            if (previewVideoWs.current) { previewVideoWs.current.destroy(); previewVideoWs.current = null; }
+            if (previewAudioWs.current) { previewAudioWs.current.destroy(); previewAudioWs.current = null; }
+            URL.revokeObjectURL(videoUrl);
+            URL.revokeObjectURL(audioUrl);
+        };
+    }, [phase, masterVideo, selectedTarget]);
+
+    // ── Manual Mode Waveforms (interactive, draggable) ──
+    useEffect(() => {
+        if (!showManual || !masterVideo || !selectedTarget) return;
+        if (!manualVideoContainer.current || !manualAudioContainer.current) return;
+
+        // Cleanup
+        if (manualVideoWs.current) { manualVideoWs.current.destroy(); manualVideoWs.current = null; }
+        if (manualAudioWs.current) { manualAudioWs.current.destroy(); manualAudioWs.current = null; }
+
+        const videoUrl = URL.createObjectURL(masterVideo.file);
+        const audioUrl = URL.createObjectURL(selectedTarget.file);
+
+        try {
+            manualVideoWs.current = WaveSurfer.create({
+                container: manualVideoContainer.current,
+                waveColor: '#6366F1',
+                progressColor: '#4338CA',
+                cursorColor: 'transparent',
+                autoCenter: true,
+                height: 100,
+                normalize: true,
+                minPxPerSec: 10,
+                interact: true,
+                hideScrollbar: false,
+                autoScroll: true,
+            });
+
+            manualAudioWs.current = WaveSurfer.create({
+                container: manualAudioContainer.current,
+                waveColor: '#10B981',
+                progressColor: '#059669',
+                cursorColor: 'transparent',
+                autoCenter: false,
+                height: 100,
+                normalize: true,
+                minPxPerSec: 10,
+                interact: false,
+                hideScrollbar: true,
+                autoScroll: false,
+            });
+
+            manualVideoWs.current.load(videoUrl);
+            manualAudioWs.current.load(audioUrl);
+
+            // When clicking on the video waveform, seek audio to matching position
+            manualVideoWs.current.on('interaction', (newTime: number) => {
+                seekManualTo(newTime);
+            });
+
+            // Apply zoom and get duration once ready
+            manualVideoWs.current.on('ready', () => {
+                try { manualVideoWs.current?.zoom(zoom); } catch { /* */ }
+                const dur = manualVideoWs.current?.getDuration() ?? 0;
+                setManualDuration(dur);
+            });
+            manualAudioWs.current.on('ready', () => {
+                try { manualAudioWs.current?.zoom(zoom); } catch { /* */ }
+                updateAudioVisualPosition(audioOffsetRef.current);
+            });
+        } catch (e) {
+            console.error('Manual waveform error:', e);
+        }
+
+        return () => {
+            stopManualPlayback();
+            if (manualVideoWs.current) { manualVideoWs.current.destroy(); manualVideoWs.current = null; }
+            if (manualAudioWs.current) { manualAudioWs.current.destroy(); manualAudioWs.current = null; }
+            URL.revokeObjectURL(videoUrl);
+            URL.revokeObjectURL(audioUrl);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showManual, masterVideo, selectedTarget]);
+
+    const stopManualPlayback = useCallback(() => {
+        manualVideoAudioRef.current?.pause();
+        manualExternalAudioRef.current?.pause();
+        setIsManualPlaying(false);
+        if (animFrameRef.current) {
+            cancelAnimationFrame(animFrameRef.current);
+            animFrameRef.current = null;
+        }
+    }, []);
 
     const updateAudioVisualPosition = useCallback((offsetTime: number) => {
         if (manualAudioContainer.current) {
@@ -61,8 +289,25 @@ export const Step2Sync: React.FC = () => {
         }
     }, [zoom]);
 
+    // Zoom effect for manual mode
+    useEffect(() => {
+        if (!showManual) return;
+        try {
+            manualVideoWs.current?.zoom(zoom);
+            manualAudioWs.current?.zoom(zoom);
+        } catch { /* */ }
+        updateAudioVisualPosition(audioOffsetRef.current);
+    }, [zoom, showManual, updateAudioVisualPosition]);
+
+    // Stop manual playback when manual mode is hidden
+    useEffect(() => {
+        if (!showManual) {
+            stopManualPlayback();
+        }
+    }, [showManual, stopManualPlayback]);
+
     // ── Manual Playback Cursor Animation ──
-    const updatePlaybackCursor = useCallback(function self() {
+    const updatePlaybackCursor = useCallback(function tick() {
         if (!manualVideoAudioRef.current) return;
 
         const currentTime = manualVideoAudioRef.current.currentTime;
@@ -96,7 +341,7 @@ export const Step2Sync: React.FC = () => {
         }
 
         if (isManualPlaying) {
-            animFrameRef.current = requestAnimationFrame(self);
+            animFrameRef.current = requestAnimationFrame(tick);
         }
     }, [isManualPlaying, manualDuration]);
 
@@ -120,10 +365,10 @@ export const Step2Sync: React.FC = () => {
     // ── Handlers ──
 
     const handleAutoSync = useCallback(() => {
-        if (videoFile && audioFile) {
-            runSync(videoFile, audioFile);
+        if (masterVideo && targetFiles.length > 0) {
+            runSyncMultiple(masterVideo.file, targetFiles);
         }
-    }, [videoFile, audioFile, runSync]);
+    }, [masterVideo, targetFiles, runSyncMultiple]);
 
     const handlePreviewToggle = useCallback(() => {
         if (!videoAudioRef.current || !externalAudioRef.current) return;
@@ -169,15 +414,6 @@ export const Step2Sync: React.FC = () => {
         }
     }, []);
 
-    const stopManualPlayback = useCallback(() => {
-        manualVideoAudioRef.current?.pause();
-        manualExternalAudioRef.current?.pause();
-        setIsManualPlaying(false);
-        if (animFrameRef.current) {
-            cancelAnimationFrame(animFrameRef.current);
-            animFrameRef.current = null;
-        }
-    }, []);
 
     const handleManualPlayPause = useCallback(() => {
         if (!manualVideoAudioRef.current || !manualExternalAudioRef.current) return;
@@ -249,6 +485,19 @@ export const Step2Sync: React.FC = () => {
         videoAudioRef.current?.pause();
         externalAudioRef.current?.pause();
         stopManualPlayback();
+
+        // Auto-cut the initial un-synchronized portion
+        // If any target has a positive offset (meaning it starts later than the master),
+        // the master has "unnecessary start" up to the maximum offset.
+        // We want all streams to have valid data.
+        const maxOffset = Math.max(0, ...videoFiles.map(v => v.syncOffset), ...audioFiles.map(a => a.syncOffset));
+        if (maxOffset > 0.1) { // Only cut if it's more than 100ms to avoid tiny unnoticeable cuts
+            const { setCuts, cuts } = useAppStore.getState();
+            // Create a unique cut ID
+            const id = `auto-start-${Date.now()}`;
+            setCuts([...cuts, { id, start: 0, end: maxOffset }]);
+        }
+
         setStep(3);
     };
 
@@ -263,10 +512,10 @@ export const Step2Sync: React.FC = () => {
         updateAudioVisualPosition(newOffset);
     }, [zoom, setSyncOffset, updateAudioVisualPosition]);
 
-    const handleMouseUp = useCallback(function self() {
+    const handleMouseUp = useCallback(function onMouseUp() {
         dragStartX.current = null;
         document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', self);
+        document.removeEventListener('mouseup', onMouseUp);
     }, [handleMouseMove]);
 
     const handleMouseDown = (e: React.MouseEvent) => {
@@ -528,8 +777,8 @@ export const Step2Sync: React.FC = () => {
                 </p>
             </div>
 
-            {/* ── No audio file ── */}
-            {!audioFile && (
+            {/* ── No targets to sync ── */}
+            {targetFiles.length === 0 && (
                 <div className="flex flex-col items-center">
                     <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-10 w-full max-w-md text-center">
                         <div className="mb-6">
@@ -539,10 +788,10 @@ export const Step2Sync: React.FC = () => {
                         </div>
 
                         <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                            Harici Ses Dosyası Yok
+                            Senkronize Edilecek Dosya Yok
                         </h3>
                         <p className="text-gray-500 text-sm mb-8">
-                            Harici mikrofon kaydı yüklenmediği için bu adımda bir işlem yapmanıza gerek yoktur.
+                            Yalnızca tek bir video yüklediğiniz için senkronizasyon gerekmiyor.
                             Doğrudan düzenlemeye geçebilirsiniz.
                         </p>
 
@@ -559,7 +808,7 @@ export const Step2Sync: React.FC = () => {
             )}
 
             {/* ── Phase: Idle ── */}
-            {audioFile && phase === 'idle' && (
+            {targetFiles.length > 0 && phase === 'idle' && (
                 <div className="flex flex-col items-center">
                     <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-10 w-full max-w-md text-center">
                         <div className="mb-6">
@@ -619,30 +868,70 @@ export const Step2Sync: React.FC = () => {
             )}
 
             {/* ── Phase: Done ── */}
-            {phase === 'done' && result && (
+            {phase === 'done' && results.length > 0 && (
                 <div className="flex flex-col items-center gap-6">
-                    {/* Success header + offset */}
-                    <div className="bg-white rounded-2xl shadow-lg border border-green-100 p-6 w-full">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <CheckCircle size={24} className="text-green-600" />
-                                <div>
-                                    <h3 className="text-lg font-semibold text-gray-900">
-                                        Senkronizasyon Tamamlandı!
-                                    </h3>
-                                    <p className="text-xs text-gray-400">
-                                        {result.confidence > 0.5 && 'Yüksek güvenilirlik ile eşleştirildi'}
-                                        {result.confidence <= 0.5 && result.confidence > 0.2 && 'Orta güvenilirlik — manuel kontrol önerilir'}
-                                        {result.confidence <= 0.2 && 'Düşük güvenilirlik — manuel düzenleme önerilir'}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="bg-gray-50 rounded-xl px-4 py-2 border border-gray-100 text-center">
-                                <span className="block text-[10px] text-gray-400 uppercase tracking-wider">Kayma</span>
-                                <span className="text-lg font-mono font-bold text-blue-600">
-                                    {syncOffset >= 0 ? '+' : ''}{syncOffset.toFixed(3)}s
-                                </span>
-                            </div>
+                    {/* Success header */}
+                    <div className="bg-white rounded-2xl shadow-lg border border-green-100 p-6 w-full text-center">
+                        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-green-100 mb-3">
+                            <CheckCircle size={24} className="text-green-600" />
+                        </div>
+                        <h3 className="text-lg font-semibold text-gray-900">
+                            Senkronizasyon Tamamlandı!
+                        </h3>
+                        <p className="text-sm text-gray-500 mt-1">
+                            Tüm dosyalar master videoya göre hizalandı. İnce ayar yapmak isterseniz aşağıdan bir dosya seçebilirsiniz.
+                        </p>
+                    </div>
+
+                    {/* Target Selection Tabs */}
+                    {targetFiles.length > 1 && (
+                        <div className="flex flex-wrap justify-center gap-2 w-full">
+                            {targetFiles.map(target => {
+                                const isVideo = videoFiles.some(v => v.id === target.id);
+                                const isSelected = selectedTargetId === target.id || (!selectedTargetId && targetFiles[0].id === target.id);
+                                const Icon = isVideo ? FileVideo : FileAudio;
+                                return (
+                                    <button
+                                        key={target.id}
+                                        onClick={() => setSelectedTargetId(target.id)}
+                                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border
+                                            ${isSelected
+                                                ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'
+                                                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                                            }`}
+                                    >
+                                        <Icon size={16} />
+                                        <span className="truncate max-w-[150px]">{target.file.name}</span>
+                                        {(results.find(r => r.id === target.id)?.confidence ?? 1) < 0.2 && (
+                                            <AlertCircle size={14} className="text-amber-500" aria-label="Düşük güvenilirlik" />
+                                        )}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {/* Selected Target Confidence & Offset */}
+                    <div className="flex items-center justify-between w-full px-4 py-3 bg-white rounded-xl border border-gray-200 shadow-sm">
+                        <div>
+                            <span className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                                {isSelectedVideo ? <FileVideo size={16}/> : <FileAudio size={16}/>}
+                                Seçili Kaynak: {selectedTarget?.file.name}
+                            </span>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                                {(() => {
+                                    const conf = results.find(r => r.id === selectedTarget?.id)?.confidence || 0;
+                                    if (conf > 0.5) return 'Yüksek güvenilirlik ile eşleştirildi';
+                                    if (conf > 0.2) return 'Orta güvenilirlik — manuel kontrol önerilir';
+                                    return 'Düşük güvenilirlik — manuel düzenleme önerilir';
+                                })()}
+                            </p>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-100 text-center">
+                            <span className="block text-[10px] text-gray-400 uppercase tracking-wider">Kayma</span>
+                            <span className="text-base font-mono font-bold text-blue-600">
+                                {syncOffset >= 0 ? '+' : ''}{syncOffset.toFixed(3)}s
+                            </span>
                         </div>
                     </div>
 
@@ -656,7 +945,7 @@ export const Step2Sync: React.FC = () => {
                         </div>
                         <div className="relative p-2">
                             <span className="absolute left-3 top-2 text-[10px] font-bold text-emerald-400 bg-slate-900/80 px-2 py-0.5 rounded z-10">
-                                MİKROFON
+                                {isSelectedVideo ? 'DİĞER KAMERA' : 'MİKROFON'}
                             </span>
                             <div ref={previewAudioContainer} className="w-full h-[64px]" />
                         </div>
@@ -765,7 +1054,7 @@ export const Step2Sync: React.FC = () => {
                                 {/* Audio track (draggable) */}
                                 <div className="relative bg-slate-800/30">
                                     <span className="absolute left-3 top-2 text-[10px] font-bold text-emerald-400 bg-slate-900/80 px-2 py-0.5 rounded z-20 pointer-events-none">
-                                        MİKROFON (Sürüklenebilir)
+                                        {isSelectedVideo ? 'DİĞER KAMERA' : 'MİKROFON'} (Sürüklenebilir)
                                     </span>
                                     <div
                                         className="w-full overflow-hidden cursor-grab active:cursor-grabbing relative h-[100px]"
