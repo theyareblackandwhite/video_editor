@@ -23,6 +23,8 @@ export const Step2Sync: React.FC = () => {
 
     const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
     const [zoom, setZoom] = useState(50);
+    const [masterAmp, setMasterAmp] = useState(1);
+    const [targetAmp, setTargetAmp] = useState(1);
     const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
 
     // Get the currently selected target file for manual editing
@@ -130,6 +132,7 @@ export const Step2Sync: React.FC = () => {
                 cursorColor: '#F59E0B',
                 cursorWidth: 2,
                 height: 80,
+                barHeight: masterAmp,
                 normalize: true,
                 minPxPerSec: 10,
                 interact: true,
@@ -144,6 +147,7 @@ export const Step2Sync: React.FC = () => {
                 progressColor: '#059669',
                 cursorColor: 'transparent',
                 height: 80,
+                barHeight: targetAmp,
                 normalize: true,
                 minPxPerSec: 10,
                 interact: false,
@@ -182,7 +186,20 @@ export const Step2Sync: React.FC = () => {
             URL.revokeObjectURL(audioUrl);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [phase, masterVideo, selectedTarget]);
+    }, [phase, masterVideo, selectedTarget]); // Deliberately omitting masterAmp and targetAmp to avoid recreating on amplitude change
+
+    // Dynamically update amplitude without recreating WaveSurfer
+    useEffect(() => {
+        if (masterWs.current) {
+            masterWs.current.setOptions({ barHeight: masterAmp });
+        }
+    }, [masterAmp]);
+
+    useEffect(() => {
+        if (targetWs.current) {
+            targetWs.current.setOptions({ barHeight: targetAmp });
+        }
+    }, [targetAmp]);
 
     const updateAudioVisualPosition = useCallback((offsetTime: number) => {
         if (targetContainer.current) {
@@ -493,20 +510,44 @@ export const Step2Sync: React.FC = () => {
 
                     {/* ── Unified Interactive Waveform Editor ── */}
                     <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 w-full">
-                        <div className="flex items-center justify-between mb-4">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-3">
                             <p className="text-xs text-gray-500 flex-1">
                                 Yeşil dalga formunu sürükleyerek kaymayı ince ayarlayabilirsiniz.
                             </p>
 
-                            {/* Zoom controls */}
-                            <div className="flex items-center gap-1 bg-gray-50 rounded-lg border border-gray-200 p-1">
-                                <button onClick={() => setZoom(z => Math.max(10, z - 10))} className="p-1.5 hover:bg-white rounded-md transition-colors" title="Uzaklaştır">
-                                    <ZoomOut size={16} />
-                                </button>
-                                <span className="px-2 text-xs font-mono text-gray-500 w-12 text-center">{zoom}px</span>
-                                <button onClick={() => setZoom(z => Math.min(500, z + 10))} className="p-1.5 hover:bg-white rounded-md transition-colors" title="Yakınlaştır">
-                                    <ZoomIn size={16} />
-                                </button>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                {/* Master Amplitude controls */}
+                                <div className="flex items-center gap-1 bg-gray-50 rounded-lg border border-gray-200 p-1" title="Kamera (Mavi) Dalga Boyu">
+                                    <button onClick={() => setMasterAmp(a => Math.max(1, a - 1))} className="p-1 px-2 hover:bg-white rounded-md transition-colors text-indigo-600 font-bold" title="Küçült">
+                                        -
+                                    </button>
+                                    <span className="px-1 text-xs font-mono text-indigo-600">Kam x{masterAmp}</span>
+                                    <button onClick={() => setMasterAmp(a => Math.min(20, a + 1))} className="p-1 px-2 hover:bg-white rounded-md transition-colors text-indigo-600 font-bold" title="Büyüt">
+                                        +
+                                    </button>
+                                </div>
+
+                                {/* Target Amplitude controls */}
+                                <div className="flex items-center gap-1 bg-gray-50 rounded-lg border border-gray-200 p-1" title="Mikrofon (Yeşil) Dalga Boyu">
+                                    <button onClick={() => setTargetAmp(a => Math.max(1, a - 1))} className="p-1 px-2 hover:bg-white rounded-md transition-colors text-emerald-600 font-bold" title="Küçült">
+                                        -
+                                    </button>
+                                    <span className="px-1 text-xs font-mono text-emerald-600">Mik x{targetAmp}</span>
+                                    <button onClick={() => setTargetAmp(a => Math.min(20, a + 1))} className="p-1 px-2 hover:bg-white rounded-md transition-colors text-emerald-600 font-bold" title="Büyüt">
+                                        +
+                                    </button>
+                                </div>
+
+                                {/* Zoom controls */}
+                                <div className="flex items-center gap-1 bg-gray-50 rounded-lg border border-gray-200 p-1">
+                                    <button onClick={() => setZoom(z => Math.max(10, z - 10))} className="p-1.5 hover:bg-white rounded-md transition-colors" title="Uzaklaştır">
+                                        <ZoomOut size={14} />
+                                    </button>
+                                    <span className="px-1 text-xs font-mono text-gray-500 w-10 text-center">{zoom}px</span>
+                                    <button onClick={() => setZoom(z => Math.min(500, z + 10))} className="p-1.5 hover:bg-white rounded-md transition-colors" title="Yakınlaştır">
+                                        <ZoomIn size={14} />
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
