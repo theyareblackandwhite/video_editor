@@ -1,5 +1,8 @@
 import { useState } from 'react';
+import { open } from '@tauri-apps/plugin-dialog';
+import { stat } from '@tauri-apps/plugin-fs';
 import { validateFileSize, type FileSizeValidation } from '../../../shared/utils/fileValidation';
+import type { MediaFile } from '../../../app/store/types';
 
 interface UseFilePickerOptions {
     accept: Record<string, string[]>;
@@ -7,8 +10,10 @@ interface UseFilePickerOptions {
     multiple?: boolean;
 }
 
+export type PickedFile = Omit<MediaFile, 'id' | 'syncOffset' | 'isMaster'>;
+
 interface UseFilePickerReturn {
-    pickFile: () => Promise<File | null>;
+    pickFile: () => Promise<PickedFile | null>;
     isLoading: boolean;
     error: string | null;
     warning: string | null;
@@ -19,8 +24,8 @@ export const useFilePicker = ({ accept, type }: UseFilePickerOptions): UseFilePi
     const [error, setError] = useState<string | null>(null);
     const [warning, setWarning] = useState<string | null>(null);
 
-    const applyValidation = (file: File): FileSizeValidation => {
-        const result = validateFileSize(file, type);
+    const applyValidation = (size: number): FileSizeValidation => {
+        const result = validateFileSize(size, type);
         setWarning(result.warning ?? null);
         if (!result.ok) {
             setError(result.error ?? 'Dosya boyutu sınırı aşıldı.');
@@ -28,65 +33,38 @@ export const useFilePicker = ({ accept, type }: UseFilePickerOptions): UseFilePi
         return result;
     };
 
-    const pickFile = async (): Promise<File | null> => {
+    const pickFile = async (): Promise<PickedFile | null> => {
         setIsLoading(true);
         setError(null);
         setWarning(null);
         try {
-            // Check if File System Access API is supported
-            if ('showOpenFilePicker' in window) {
-                try {
-                    const handles = await (window as unknown as { showOpenFilePicker: (options: unknown) => Promise<Array<{ getFile: () => Promise<File> }>> }).showOpenFilePicker({
-                        types: [
-                            {
-                                description: 'Media Files',
-                                accept: accept,
-                            },
-                        ],
-                        multiple: false,
-                    });
+            const extensions = Object.values(accept).flat().map(ext => ext.replace('.', ''));
+            const selected = await open({
+                multiple: false,
+                filters: [{
+                    name: type === 'video' ? 'Video Dosyaları' : 'Ses Dosyaları',
+                    extensions
+                }]
+            });
 
-                    if (handles && handles.length > 0) {
-                        const file = await handles[0].getFile();
-                        const validation = applyValidation(file);
-                        if (!validation.ok) return null;
-                        return file;
-                    }
-                } catch (err: unknown) {
-                    // User cancelled or other error
-                    if (err instanceof Error && err.name !== 'AbortError') {
-                        console.error("File System Access API error:", err);
-                        throw err;
-                    }
-                    return null;
-                }
-            } else {
-                // Fallback to standard input
-                return new Promise((resolve) => {
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = Object.values(accept).flat().join(',');
+            if (selected && typeof selected === 'string') {
+                const path = selected;
+                const fileStat = await stat(path);
+                const size = fileStat.size || 0;
+                
+                const name = path.split(/[/\\]/).pop() || 'unknown';
+                
+                const ext = name.split('.').pop()?.toLowerCase() || '';
+                const mimeType = type === 'video' ? `video/${ext === 'mkv' ? 'x-matroska' : ext}` : `audio/${ext}`;
 
-                    input.onchange = (e) => {
-                        const files = (e.target as HTMLInputElement).files;
-                        if (files && files.length > 0) {
-                            const file = files[0];
-                            const validation = applyValidation(file);
-                            if (!validation.ok) {
-                                resolve(null);
-                                return;
-                            }
-                            resolve(file);
-                        } else {
-                            resolve(null);
-                        }
-                    };
-                    input.click();
-                });
+                const validation = applyValidation(size);
+                if (!validation.ok) return null;
+
+                return { path, name, size, type: mimeType };
             }
         } catch (err: unknown) {
-            if (err instanceof Error && err.name !== 'AbortError') {
-                setError(err.message || 'Error selecting file');
+            if (err instanceof Error) {
+                setError(err.message || 'Dosya seçilirken hata oluştu');
             }
         } finally {
             setIsLoading(false);

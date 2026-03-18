@@ -1,5 +1,5 @@
 import React from 'react';
-import { HardDrive, Download, Loader2 } from 'lucide-react';
+import { HardDrive, Download } from 'lucide-react';
 import type { ExportConfig } from '../utils/ffmpegUtils';
 import type { MediaFile } from '../../../app/store/types';
 
@@ -27,8 +27,6 @@ interface Props {
     cutsCount: number;
     estimatedSize: number;
     onExport: () => void;
-    isLoaded: boolean;
-    isFfmpegLoading: boolean;
 }
 
 export const ExportSummary: React.FC<Props> = ({
@@ -38,9 +36,7 @@ export const ExportSummary: React.FC<Props> = ({
     audioFilesCount,
     cutsCount,
     estimatedSize,
-    onExport,
-    isLoaded,
-    isFfmpegLoading
+    onExport
 }) => {
     return (
         <div className="lg:col-span-1">
@@ -51,7 +47,7 @@ export const ExportSummary: React.FC<Props> = ({
                     <div className="flex justify-between text-sm">
                         <span className="text-gray-500">Kaynak</span>
                         <span className="font-medium text-gray-800 truncate max-w-[150px]">
-                            {masterVideo?.file.name || '—'} {videoFilesCount > 1 && `(+${videoFilesCount - 1} kamera)`}
+                            {masterVideo?.name || '—'} {videoFilesCount > 1 && `(+${videoFilesCount - 1} kamera)`}
                         </span>
                     </div>
                     <div className="flex justify-between text-sm">
@@ -96,16 +92,13 @@ export const ExportSummary: React.FC<Props> = ({
 
                 <button
                     onClick={onExport}
-                    disabled={!isLoaded || isFfmpegLoading}
                     className={`w-full py-4 px-6 font-semibold rounded-xl text-lg transition-all shadow-lg
-                        ${isLoaded
-                            ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-blue-600/30 active:scale-[0.98]'
-                            : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                        }`}
+                        bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-blue-600/30 active:scale-[0.98]
+                        `}
                 >
                     <div className="flex items-center justify-center gap-3">
-                        {isFfmpegLoading ? <Loader2 className="animate-spin" size={22} /> : <Download size={22} />}
-                        {isFfmpegLoading ? 'Yükleniyor...' : 'Dışa Aktar'}
+                        <Download size={22} />
+                        Dışa Aktar
                     </div>
                 </button>
             </div>

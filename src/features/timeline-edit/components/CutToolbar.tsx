@@ -32,7 +32,7 @@ export const CutToolbar: React.FC<CutToolbarProps> = ({
         if (!masterVideo) return;
         setIsDetectingSilences(true);
         try {
-            const newCuts = await detectSilences(masterVideo.file, silenceThreshold, silenceDuration);
+            const newCuts = await detectSilences(masterVideo.path, silenceThreshold, silenceDuration);
             if (newCuts.length > 0) {
                 setCuts([...cuts, ...newCuts]);
                 alert(`${newCuts.length} sessiz bölüm bulundu ve kesim listesine eklendi.`);

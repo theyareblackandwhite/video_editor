@@ -8,7 +8,7 @@ interface VideoPreviewProps {
     allAudioFiles: MediaFile[];
     videoFiles: MediaFile[];
     layoutMode: LayoutMode;
-    mediaUrls: React.MutableRefObject<Record<string, string>>;
+    mediaUrls: Record<string, string>;
     masterVideoRef: React.RefObject<HTMLVideoElement | null>;
     otherVideoRefs: React.MutableRefObject<Record<string, HTMLVideoElement | null>>;
     audioRefs: React.MutableRefObject<Record<string, HTMLAudioElement | null>>;
@@ -67,7 +67,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                         <div className={`relative ${videoFiles.length > 1 ? 'flex-1 border-r border-gray-800' : 'w-full h-full'} overflow-hidden flex items-center justify-center bg-black`}>
                             <video
                                 ref={masterVideoRef}
-                                src={mediaUrls.current[masterVideo.id]}
+                                src={mediaUrls[masterVideo.id]}
                                 className={`w-full h-full ${videoFiles.length > 1 && layoutMode === 'crop' ? 'object-cover' : 'object-contain'}`}
                                 onLoadedMetadata={() => {
                                     if (masterVideoRef.current && duration === 0) {
@@ -87,7 +87,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                         <div key={v.id} className="relative flex-1 overflow-hidden flex items-center justify-center bg-black border-l border-gray-800">
                             <video
                                 ref={el => { if (el) otherVideoRefs.current[v.id] = el; }}
-                                src={mediaUrls.current[v.id]}
+                                src={mediaUrls[v.id]}
                                 className={`w-full h-full ${layoutMode === 'crop' ? 'object-cover' : 'object-contain'}`}
                                 muted
                             />
@@ -101,7 +101,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                     <audio
                         key={a.id}
                         ref={el => { if (el) audioRefs.current[a.id] = el; }}
-                        src={mediaUrls.current[a.id]}
+                        src={mediaUrls[a.id]}
                         preload="auto"
                     />
                 ))}

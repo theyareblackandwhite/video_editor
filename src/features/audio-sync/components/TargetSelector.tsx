@@ -36,7 +36,7 @@ export const TargetSelector: React.FC<Props> = ({
                             }`}
                     >
                         <Icon size={16} />
-                        <span className="truncate max-w-[150px]">{target.file.name}</span>
+                        <span className="truncate max-w-[150px]">{target.name}</span>
                         {(results.find(r => r.id === target.id)?.confidence ?? 1) < 0.2 && (
                             <AlertCircle size={14} className="text-amber-500" aria-label="Düşük güvenilirlik" />
                         )}

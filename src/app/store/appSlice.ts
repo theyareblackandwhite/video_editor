@@ -127,22 +127,8 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
             const state = get();
             if (!state.currentProjectId) return;
 
-            const videoFilesMeta = state.videoFiles.map(f => ({
-                id: f.id,
-                name: f.file.name,
-                type: f.file.type,
-                size: f.file.size,
-                syncOffset: f.syncOffset,
-                isMaster: f.isMaster
-            }));
-
-            const audioFilesMeta = state.audioFiles.map(f => ({
-                id: f.id,
-                name: f.file.name,
-                type: f.file.type,
-                size: f.file.size,
-                syncOffset: f.syncOffset,
-            }));
+            const videoFilesMeta = state.videoFiles;
+            const audioFilesMeta = state.audioFiles;
 
             set((state) => ({
                 projects: state.projects.map(p =>
@@ -166,19 +152,18 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
     },
 
     hydrateProject: async (projectId) => {
-        const { projects, hydrateMediaFiles } = get();
+        const { projects } = get();
         const project = projects.find(p => p.id === projectId);
         if (!project) return;
 
-        // 1. Restore metadata to root state immediately
+        // Restore all project state synchronously
         set({
             currentStep: project.state.currentStep || 1,
             cuts: project.state.cuts || [],
             layoutMode: project.state.layoutMode || 'crop',
             transitionType: project.state.transitionType || 'none',
+            videoFiles: project.state.videoFiles || [],
+            audioFiles: project.state.audioFiles || [],
         });
-
-        // 2. Hydrate media files (async)
-        await hydrateMediaFiles(projectId);
     }
 });

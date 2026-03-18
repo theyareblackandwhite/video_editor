@@ -1,4 +1,5 @@
 import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { CheckCircle } from 'lucide-react';
 import { useAppStore } from '../../../app/store';
 import { useAutoSync } from '../hooks/useAutoSync';
@@ -58,19 +59,14 @@ export const AudioSync: React.FC = () => {
     const videoUrlRef = useRef<string>('');
     const audioUrlRef = useRef<string>('');
 
-    // Create object URLs for playback and waveform rendering
+    // Obtain object URLs for playback and waveform rendering
     useEffect(() => {
-        if (masterVideo?.file) {
-            videoUrlRef.current = URL.createObjectURL(masterVideo.file);
+        if (masterVideo?.path) {
+            videoUrlRef.current = convertFileSrc(masterVideo.path);
         }
-        if (selectedTarget?.file) {
-            audioUrlRef.current = URL.createObjectURL(selectedTarget.file);
+        if (selectedTarget?.path) {
+            audioUrlRef.current = convertFileSrc(selectedTarget.path);
         }
-        return () => {
-            if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
-            if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [masterVideo?.id, selectedTarget?.id]);
 
     const appliedResultsRef = useRef<string>('');
@@ -139,7 +135,7 @@ export const AudioSync: React.FC = () => {
     // Event Handlers
     const handleAutoSync = useCallback(() => {
         if (masterVideo && targetFiles.length > 0) {
-            runSyncMultiple(masterVideo.file, targetFiles);
+            runSyncMultiple(masterVideo, targetFiles);
         }
     }, [masterVideo, targetFiles, runSyncMultiple]);
 
@@ -219,7 +215,7 @@ export const AudioSync: React.FC = () => {
                     <div className="flex items-center justify-between w-full px-4 py-3 bg-white rounded-xl border border-gray-200 shadow-sm">
                         <div>
                             <span className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-                                Seçili Kaynak: {selectedTarget?.file.name}
+                                Seçili Kaynak: {selectedTarget?.name}
                             </span>
                             <p className="text-xs text-gray-500 mt-0.5">
                                 {(() => {

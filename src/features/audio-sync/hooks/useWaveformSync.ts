@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import WaveSurfer from 'wavesurfer.js';
 import type { MediaFile } from '../../../app/store/types';
 
@@ -58,8 +59,8 @@ export function useWaveformSync({
         if (masterWs.current) { masterWs.current.destroy(); masterWs.current = null; }
         if (targetWs.current) { targetWs.current.destroy(); targetWs.current = null; }
 
-        const videoUrl = URL.createObjectURL(masterVideo.file);
-        const audioUrl = URL.createObjectURL(selectedTarget.file);
+        const videoUrl = convertFileSrc(masterVideo.path);
+        const audioUrl = convertFileSrc(selectedTarget.path);
 
         try {
             masterWs.current = WaveSurfer.create({

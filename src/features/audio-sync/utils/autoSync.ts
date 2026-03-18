@@ -6,10 +6,9 @@
  * different sources (e.g., camera mic vs. external mic).
  */
 
-import { estimateSyncMemoryMB, MAX_DECODE_DURATION_S, formatFileSize } from '../../../shared/utils/fileValidation';
+import { MAX_DECODE_DURATION_S } from '../../../shared/utils/fileValidation';
 
 import { decodeToMono } from '../../../shared/utils/audio';
-
 
 export interface AutoSyncResult {
     /** Offset in seconds. Positive = audio starts later than video. */
@@ -20,9 +19,6 @@ export interface AutoSyncResult {
 
 export const TARGET_SAMPLE_RATE = 8000; // Downsample to 8kHz for speed
 const MAX_OFFSET_SECONDS = 30;  // Maximum expected drift between tracks
-
-/** Maximum combined memory (MB) allowed before aborting decode. */
-const MAX_COMBINED_MEMORY_MB = 4096; // 4 GB — modern browsers handle this fine
 
 
 
@@ -189,36 +185,29 @@ function runCorrelationInWorker(
  * Main entry point: auto-sync two media files.
  *
  * Architecture:
- * 1. Decode on main thread (AudioContext required)
- * 2. Offload normalize + cross-correlation to Web Worker
+ * 1. Decode to tiny WAV chunks using Native FFmpeg (disk-based, memory-safe).
+ * 2. Fetch those chunks into memory.
+ * 3. Offload normalize + cross-correlation to Web Worker.
  *
- * @param videoFile - The video file (reference track)
- * @param audioFile - The external audio file (to be aligned)
+ * @param videoPath - The absolute path of the video file
+ * @param audioPath - The absolute path of the external audio file
  * @param onProgress - Optional progress callback (0-1)
  * @returns The offset and confidence
  */
 export async function autoSyncFiles(
-    videoFile: File,
-    audioFile: File,
+    videoPath: string,
+    audioPath: string,
     onProgress?: (progress: number) => void
 ): Promise<AutoSyncResult> {
     onProgress?.(0.1);
 
-    // Step 0: Pre-decode memory safety check
-    const estimatedMB =
-        estimateSyncMemoryMB(videoFile, MAX_DECODE_DURATION_S, TARGET_SAMPLE_RATE) +
-        estimateSyncMemoryMB(audioFile, MAX_DECODE_DURATION_S, TARGET_SAMPLE_RATE);
-    if (estimatedMB > MAX_COMBINED_MEMORY_MB) {
-        throw new Error(
-            `Toplam tahmini bellek kullanımı çok yüksek (${formatFileSize(estimatedMB * 1024 * 1024)}). ` +
-            `Tarayıcı çökebilir. Lütfen daha küçük dosyalar kullanın.`
-        );
-    }
+    // native FFmpeg extracts only what's needed, very memory efficient.
+    // Memory limit checks on the original file sizes are no longer applicable.
 
-    // Step 1: Decode both files to mono PCM (main thread — AudioContext required)
+    // Step 1: Extract 3 mins & decode to mono PCM
     const [videoSamples, audioSamples] = await Promise.all([
-        decodeToMono(videoFile, TARGET_SAMPLE_RATE, MAX_DECODE_DURATION_S),
-        decodeToMono(audioFile, TARGET_SAMPLE_RATE, MAX_DECODE_DURATION_S),
+        decodeToMono(videoPath, TARGET_SAMPLE_RATE, MAX_DECODE_DURATION_S),
+        decodeToMono(audioPath, TARGET_SAMPLE_RATE, MAX_DECODE_DURATION_S),
     ]);
 
     onProgress?.(0.4);

@@ -9,24 +9,18 @@ export type TransitionType = 'none' | 'crossfade';
 
 export interface MediaFile {
     id: string;
-    file: File;
-    syncOffset: number; // Offset relative to master
-    isMaster?: boolean;
-}
-
-export interface MediaFileMeta {
-    id: string;
+    path: string; // Native absolute path for desktop
     name: string;
     type: string;
     size: number;
-    syncOffset: number;
+    syncOffset: number; // Offset relative to master
     isMaster?: boolean;
 }
 
 export interface ProjectState {
     currentStep: number;
-    videoFiles: MediaFileMeta[];
-    audioFiles: MediaFileMeta[];
+    videoFiles: MediaFile[];
+    audioFiles: MediaFile[];
     cuts: CutSegment[];
     layoutMode: LayoutMode;
     transitionType: TransitionType;

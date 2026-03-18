@@ -1,5 +1,13 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useAppStore } from '../index';
+
+vi.mock('idb-keyval', () => ({
+    get: vi.fn(),
+    set: vi.fn(),
+    del: vi.fn(),
+    clear: vi.fn(),
+    keys: vi.fn(),
+}));
 
 describe('useAppStore', () => {
     beforeEach(() => {
@@ -31,25 +39,25 @@ describe('useAppStore', () => {
     });
 
     it('handles video files', async () => {
-        const mockVideo = new File([''], 'test.mp4', { type: 'video/mp4' });
+        const mockVideo = { path: '/test.mp4', name: 'test.mp4', type: 'video/mp4', size: 1000 };
         await useAppStore.getState().addVideoFile(mockVideo);
-        expect(useAppStore.getState().videoFiles[0].file).toBe(mockVideo);
+        expect(useAppStore.getState().videoFiles[0].path).toBe('/test.mp4');
         expect(useAppStore.getState().videoFiles[0].isMaster).toBe(true);
 
-        const mockVideo2 = new File([''], 'test2.mp4', { type: 'video/mp4' });
+        const mockVideo2 = { path: '/test2.mp4', name: 'test2.mp4', type: 'video/mp4', size: 2000 };
         await useAppStore.getState().addVideoFile(mockVideo2);
         expect(useAppStore.getState().videoFiles).toHaveLength(2);
         expect(useAppStore.getState().videoFiles[1].isMaster).toBeFalsy();
     });
 
     it('handles audio files', async () => {
-        const mockAudio = new File([''], 'test.mp3', { type: 'audio/mp3' });
+        const mockAudio = { path: '/test.mp3', name: 'test.mp3', type: 'audio/mp3', size: 500 };
         await useAppStore.getState().addAudioFile(mockAudio);
-        expect(useAppStore.getState().audioFiles[0].file).toBe(mockAudio);
+        expect(useAppStore.getState().audioFiles[0].path).toBe('/test.mp3');
     });
 
     it('setVideoSyncOffset updates syncOffset', async () => {
-        await useAppStore.getState().addVideoFile(new File([''], 't.mp4'));
+        await useAppStore.getState().addVideoFile({ path: '/t.mp4', name: 't.mp4', type: 'video/mp4', size: 100 });
         const id = useAppStore.getState().videoFiles[0].id;
         useAppStore.getState().setVideoSyncOffset(id, 1.5);
         expect(useAppStore.getState().videoFiles[0].syncOffset).toBe(1.5);

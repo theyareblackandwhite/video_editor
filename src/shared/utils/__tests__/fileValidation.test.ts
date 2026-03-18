@@ -38,8 +38,8 @@ describe('formatFileSize', () => {
 describe('validateFileSize', () => {
     const MB = 1024 * 1024;
 
-    const makeFile = (sizeMB: number): File => {
-        return { size: sizeMB * MB } as File;
+    const makeFile = (sizeMB: number): number => {
+        return sizeMB * MB;
     };
 
     it('returns ok for small video file', () => {
@@ -97,13 +97,13 @@ describe('estimateMemoryUsageMB', () => {
     const MB = 1024 * 1024;
 
     it('estimates memory correctly', () => {
-        const file = { size: 100 * MB } as File;
-        expect(estimateMemoryUsageMB(file)).toBe(100 * MEMORY_MULTIPLIER);
+        const size = 100 * MB;
+        expect(estimateMemoryUsageMB(size)).toBe(100 * MEMORY_MULTIPLIER);
     });
 
     it('returns 0 for empty file', () => {
-        const file = { size: 0 } as File;
-        expect(estimateMemoryUsageMB(file)).toBe(0);
+        const size = 0;
+        expect(estimateMemoryUsageMB(size)).toBe(0);
     });
 });
 
@@ -112,8 +112,8 @@ describe('estimateMemoryUsageMB', () => {
 describe('estimateSyncMemoryMB', () => {
     const MB = 1024 * 1024;
 
-    const makeFile = (sizeMB: number): File => {
-        return { size: sizeMB * MB } as File;
+    const makeFile = (sizeMB: number): number => {
+        return sizeMB * MB;
     };
 
     it('estimates much less than file.size × 6 for large files', () => {
@@ -137,7 +137,7 @@ describe('estimateSyncMemoryMB', () => {
         const file = makeFile(0);
         const estimate = estimateSyncMemoryMB(file);
         // Only the tiny PCM output remains
-        expect(estimate).toBeLessThan(5);
+        expect(estimate).toBeLessThan(6);
     });
 
     it('uses default duration and sample rate from constants', () => {

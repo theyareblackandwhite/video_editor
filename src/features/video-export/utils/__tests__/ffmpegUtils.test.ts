@@ -104,48 +104,48 @@ describe('buildFFmpegCommand', () => {
         transitionType: 'none' as const,
     };
 
-    const mockMasterVideo = { id: 'm1', file: new File([], 'm.mp4'), syncOffset: 0, isMaster: true };
-    const mockAudio = { id: 'a1', file: new File([], 'a.mp3'), syncOffset: 0 };
+    const mockMasterVideo = { id: 'm1', path: '/m.mp4', name: 'm.mp4', type: 'video/mp4', size: 1000, syncOffset: 0, isMaster: true };
+    const mockAudio = { id: 'a1', path: '/a.mp3', name: 'a.mp3', type: 'audio/mp3', size: 500, syncOffset: 0 };
 
     it('generates mp4 with correct codec and CRF for high quality', () => {
-        const args = buildFFmpegCommand(baseConfig, [], 60, [mockMasterVideo], [], 'm1');
+        const args = buildFFmpegCommand(baseConfig, [], 60, [mockMasterVideo], [], 'm1', '/output.mp4');
         expect(args).toContain('-c:v');
         expect(args).toContain('libx264');
         expect(args).toContain('-crf');
-        expect(args[args.indexOf('-crf') + 1]).toBe('18');
+        expect(args[args.indexOf('-crf') + 1]).toBe('23');
         expect(args).toContain('-movflags');
     });
 
     it('generates mp4 with medium CRF', () => {
-        const args = buildFFmpegCommand({ ...baseConfig, quality: 'medium' }, [], 60, [mockMasterVideo], [], 'm1');
-        expect(args[args.indexOf('-crf') + 1]).toBe('23');
-    });
-
-    it('generates mp4 with low CRF', () => {
-        const args = buildFFmpegCommand({ ...baseConfig, quality: 'low' }, [], 60, [mockMasterVideo], [], 'm1');
+        const args = buildFFmpegCommand({ ...baseConfig, quality: 'medium' }, [], 60, [mockMasterVideo], [], 'm1', '/output.mp4');
         expect(args[args.indexOf('-crf') + 1]).toBe('28');
     });
 
+    it('generates mp4 with low CRF', () => {
+        const args = buildFFmpegCommand({ ...baseConfig, quality: 'low' }, [], 60, [mockMasterVideo], [], 'm1', '/output.mp4');
+        expect(args[args.indexOf('-crf') + 1]).toBe('32');
+    });
+
     it('generates webm with VP9 + Opus codecs', () => {
-        const args = buildFFmpegCommand({ ...baseConfig, format: 'webm' }, [], 60, [mockMasterVideo], [], 'm1');
+        const args = buildFFmpegCommand({ ...baseConfig, format: 'webm' }, [], 60, [mockMasterVideo], [], 'm1', '/output.webm');
         expect(args).toContain('libvpx-vp9');
         expect(args).toContain('libopus');
-        expect(args[args.length - 1]).toBe('output.webm');
+        expect(args[args.length - 1]).toBe('/output.webm');
     });
 
     it('includes second input when external audio is present', () => {
-        const args = buildFFmpegCommand(baseConfig, [], 60, [mockMasterVideo], [mockAudio], 'm1');
-        expect(args).toContain('input_audio_0');
+        const args = buildFFmpegCommand(baseConfig, [], 60, [mockMasterVideo], [mockAudio], 'm1', '/output.mp4');
+        expect(args).toContain('/a.mp3');
     });
 
     it('does not include second input without external audio', () => {
-        const args = buildFFmpegCommand({ ...baseConfig, includeAudio: false }, [], 60, [mockMasterVideo], [mockAudio], 'm1');
+        const args = buildFFmpegCommand({ ...baseConfig, includeAudio: false }, [], 60, [mockMasterVideo], [mockAudio], 'm1', '/output.mp4');
         expect(args).not.toContain('input_audio_0');
     });
 
     it('includes adelay filter for positive sync offset with external audio', () => {
         const a2 = { ...mockAudio, syncOffset: 2.5 };
-        const args = buildFFmpegCommand(baseConfig, [], 60, [mockMasterVideo], [a2], 'm1');
+        const args = buildFFmpegCommand(baseConfig, [], 60, [mockMasterVideo], [a2], 'm1', '/output.mp4');
         const filterIdx = args.indexOf('-filter_complex');
         expect(filterIdx).toBeGreaterThan(-1);
         const filterStr = args[filterIdx + 1];
@@ -155,7 +155,7 @@ describe('buildFFmpegCommand', () => {
 
     it('includes atrim filter for negative sync offset with external audio', () => {
         const a2 = { ...mockAudio, syncOffset: -1.0 };
-        const args = buildFFmpegCommand(baseConfig, [], 60, [mockMasterVideo], [a2], 'm1');
+        const args = buildFFmpegCommand(baseConfig, [], 60, [mockMasterVideo], [a2], 'm1', '/output.mp4');
         const filterIdx = args.indexOf('-filter_complex');
         const filterStr = args[filterIdx + 1];
         expect(filterStr).toContain('atrim=start=1');
@@ -163,7 +163,7 @@ describe('buildFFmpegCommand', () => {
 
     it('applies trim+concat filters when cuts are enabled', () => {
         const cuts: CutSegment[] = [{ id: '1', start: 10, end: 20 }];
-        const args = buildFFmpegCommand({ ...baseConfig, applyCuts: true }, cuts, 60, [mockMasterVideo], [], 'm1');
+        const args = buildFFmpegCommand({ ...baseConfig, applyCuts: true }, cuts, 60, [mockMasterVideo], [], 'm1', '/output.mp4');
         const filterIdx = args.indexOf('-filter_complex');
         const filterStr = args[filterIdx + 1];
         expect(filterStr).toContain('trim=');
@@ -171,17 +171,17 @@ describe('buildFFmpegCommand', () => {
     });
 
     it('includes loudnorm filter when normalizeAudio is true', () => {
-        const args = buildFFmpegCommand({ ...baseConfig, normalizeAudio: true }, [], 60, [mockMasterVideo], [], 'm1');
+        const args = buildFFmpegCommand({ ...baseConfig, normalizeAudio: true }, [], 60, [mockMasterVideo], [], 'm1', '/output.mp4');
         const filterIdx = args.indexOf('-filter_complex');
         const filterStr = args[filterIdx + 1];
         expect(filterStr).toContain('loudnorm');
     });
 
     it('output filename matches format', () => {
-        const mp4Args = buildFFmpegCommand(baseConfig, [], 60, [mockMasterVideo], [], 'm1');
-        expect(mp4Args[mp4Args.length - 1]).toBe('output.mp4');
+        const mp4Args = buildFFmpegCommand(baseConfig, [], 60, [mockMasterVideo], [], 'm1', '/out.mp4');
+        expect(mp4Args[mp4Args.length - 1]).toBe('/out.mp4');
 
-        const webmArgs = buildFFmpegCommand({ ...baseConfig, format: 'webm' }, [], 60, [mockMasterVideo], [], 'm1');
-        expect(webmArgs[webmArgs.length - 1]).toBe('output.webm');
+        const webmArgs = buildFFmpegCommand({ ...baseConfig, format: 'webm' }, [], 60, [mockMasterVideo], [], 'm1', '/out.webm');
+        expect(webmArgs[webmArgs.length - 1]).toBe('/out.webm');
     });
 });

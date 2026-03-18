@@ -1,26 +1,19 @@
-import { useRef, useEffect } from 'react';
+import { useMemo } from 'react';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import type { MediaFile } from '../../../app/store/types';
 
 /**
- * Manages Object URL lifecycle for media files.
- * Creates URLs lazily and revokes them on cleanup.
+ * Maps absolute file paths to Tauri asset protocol URLs for browser playback.
  */
 export function useMediaUrls(videoFiles: MediaFile[], audioFiles: MediaFile[]) {
-    const urls = useRef<Record<string, string>>({});
-
-    useEffect(() => {
-        const urlMap = urls.current;
+    return useMemo(() => {
+        const urls: Record<string, string> = {};
         videoFiles.forEach(v => {
-            if (!urlMap[v.id]) urlMap[v.id] = URL.createObjectURL(v.file);
+            urls[v.id] = convertFileSrc(v.path);
         });
         audioFiles.forEach(a => {
-            if (!urlMap[a.id]) urlMap[a.id] = URL.createObjectURL(a.file);
+            urls[a.id] = convertFileSrc(a.path);
         });
-        return () => {
-            Object.values(urlMap).forEach(url => URL.revokeObjectURL(url));
-            urls.current = {};
-        };
+        return urls;
     }, [videoFiles, audioFiles]);
-
-    return urls;
 }

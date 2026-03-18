@@ -80,27 +80,30 @@ export const buildFFmpegCommand = (
     totalDuration: number,
     videoFiles: MediaFile[],
     audioFiles: MediaFile[],
-    masterVideoId: string
+    masterVideoId: string,
+    outputPath: string
 ): string[] => {
-    const args: string[] = [];
+    // Force terminal overwrite by default
+    const args: string[] = ['-y'];
     const filterComplex: string[] = [];
 
+    const masterVideo = videoFiles.find(v => v.id === masterVideoId)!;
     const otherVideos = videoFiles.filter(v => v.id !== masterVideoId);
 
     // 1. Inputs
     // Master video is always input 0
-    args.push('-i', 'input_video_0');
+    args.push('-i', masterVideo.path);
 
     // Other videos are inputs 1 to N
     for (let i = 0; i < otherVideos.length; i++) {
-        args.push('-i', `input_video_${i + 1}`);
+        args.push('-i', otherVideos[i].path);
     }
 
     // Audio files are inputs N+1 to M
     const audioInputOffset = 1 + otherVideos.length;
     if (config.includeAudio) {
         for (let i = 0; i < audioFiles.length; i++) {
-            args.push('-i', `input_audio_${i}`);
+            args.push('-i', audioFiles[i].path);
         }
     }
 
@@ -313,7 +316,7 @@ export const buildFFmpegCommand = (
     }
 
     // Output filename
-    args.push(`output.${config.format}`);
+    args.push(outputPath);
 
     return args;
 };

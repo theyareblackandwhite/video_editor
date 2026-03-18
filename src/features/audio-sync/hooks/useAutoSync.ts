@@ -16,7 +16,7 @@ interface UseAutoSyncReturn {
     progress: number;
     results: SyncTargetResult[];
     error: string | null;
-    runSyncMultiple: (masterFile: File, targets: MediaFile[]) => Promise<void>;
+    runSyncMultiple: (master: MediaFile, targets: MediaFile[]) => Promise<void>;
     reset: () => void;
 }
 
@@ -26,7 +26,7 @@ export function useAutoSync(): UseAutoSyncReturn {
     const [results, setResults] = useState<SyncTargetResult[]>([]);
     const [error, setError] = useState<string | null>(null);
 
-    const runSyncMultiple = useCallback(async (masterFile: File, targets: MediaFile[]) => {
+    const runSyncMultiple = useCallback(async (master: MediaFile, targets: MediaFile[]) => {
         setPhase('processing');
         setProgress(0);
         setResults([]);
@@ -40,7 +40,7 @@ export function useAutoSync(): UseAutoSyncReturn {
                 try {
                     // Update progress proportionally
                     const baseProgress = i / targets.length;
-                    const syncResult = await autoSyncFiles(masterFile, target.file, (p) => {
+                    const syncResult = await autoSyncFiles(master.path, target.path, (p) => {
                         setProgress(baseProgress + (p / targets.length));
                     });
                     finalResults.push({

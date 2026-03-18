@@ -56,10 +56,10 @@ export interface FileSizeValidation {
  * Returns Turkish-language messages for the UI.
  */
 export function validateFileSize(
-    file: File,
+    size: number,
     type: 'video' | 'audio'
 ): FileSizeValidation {
-    const sizeMB = file.size / MB;
+    const sizeMB = size / MB;
     const maxMB = type === 'video' ? FILE_SIZE_LIMITS.VIDEO_MAX_MB : FILE_SIZE_LIMITS.AUDIO_MAX_MB;
     const warnMB = type === 'video' ? FILE_SIZE_LIMITS.VIDEO_WARN_MB : FILE_SIZE_LIMITS.AUDIO_WARN_MB;
     const label = type === 'video' ? 'Video' : 'Ses';
@@ -67,14 +67,14 @@ export function validateFileSize(
     if (sizeMB > maxMB) {
         return {
             ok: false,
-            error: `${label} dosyası çok büyük (${formatFileSize(file.size)}). Maksimum izin verilen boyut ${formatFileSize(maxMB * MB)}. Lütfen daha küçük bir dosya seçin.`,
+            error: `${label} dosyası çok büyük (${formatFileSize(size)}). Maksimum izin verilen boyut ${formatFileSize(maxMB * MB)}. Lütfen daha küçük bir dosya seçin.`,
         };
     }
 
     if (sizeMB > warnMB) {
         return {
             ok: true,
-            warning: `${label} dosyası büyük (${formatFileSize(file.size)}). Tarayıcı performansı düşebilir veya bellek hatası oluşabilir.`,
+            warning: `${label} dosyası büyük (${formatFileSize(size)}). Tarayıcı performansı düşebilir veya bellek hatası oluşabilir.`,
         };
     }
 
@@ -84,8 +84,8 @@ export function validateFileSize(
 /**
  * Estimate peak memory usage (MB) when decoding a media file to raw PCM.
  */
-export function estimateMemoryUsageMB(file: File): number {
-    return (file.size / MB) * MEMORY_MULTIPLIER;
+export function estimateMemoryUsageMB(size: number): number {
+    return (size / MB) * MEMORY_MULTIPLIER;
 }
 
 /**
@@ -97,14 +97,14 @@ export function estimateMemoryUsageMB(file: File): number {
  *
  * Peak memory ≈ compressed ArrayBuffer + intermediate decoded AudioBuffer + output PCM.
  * The intermediate AudioBuffer is the largest unknown — we estimate it as
- * file.size × 1.5 (stereo 16-bit decode is roughly 2×, but codecs vary).
+ * size × 1.5 (stereo 16-bit decode is roughly 2×, but codecs vary).
  */
 export function estimateSyncMemoryMB(
-    file: File,
+    size: number,
     maxDurationS: number = MAX_DECODE_DURATION_S,
     targetSampleRate: number = 8000
 ): number {
-    const compressedMB = file.size / MB;
+    const compressedMB = size / MB;
     // Intermediate AudioBuffer: conservative 1.5× of compressed size
     const decodedEstimateMB = compressedMB * 1.5;
     // Final mono Float32 output (tiny): maxDurationS × sampleRate × 4 bytes

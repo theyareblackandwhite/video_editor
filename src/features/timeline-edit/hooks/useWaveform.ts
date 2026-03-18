@@ -4,7 +4,7 @@ import type { MediaFile } from '../../../app/store/types';
 
 interface UseWaveformOptions {
     masterVideo: MediaFile | undefined;
-    mediaUrls: React.MutableRefObject<Record<string, string>>;
+    mediaUrls: Record<string, string>;
     waveContainerRef: React.RefObject<HTMLDivElement | null>;
     seekToRef: React.MutableRefObject<(t: number) => void>;
     setDuration: React.Dispatch<React.SetStateAction<number>>;
@@ -30,7 +30,7 @@ export function useWaveform({
         if (!masterVideo || !waveContainerRef.current) return;
         if (wsRef.current) { wsRef.current.destroy(); wsRef.current = null; }
 
-        const url = mediaUrls.current[masterVideo.id] || URL.createObjectURL(masterVideo.file);
+        const url = mediaUrls[masterVideo.id];
         wsRef.current = WaveSurfer.create({
             container: waveContainerRef.current,
             waveColor: '#818CF8',

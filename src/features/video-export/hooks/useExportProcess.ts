@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { Command } from '@tauri-apps/plugin-shell';
+import { save } from '@tauri-apps/plugin-dialog';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import type { ExportConfig } from '../utils/ffmpegUtils';
 import { buildFFmpegCommand } from '../utils/ffmpegUtils';
-import { fetchFile } from '@ffmpeg/util';
 import type { MediaFile, CutSegment } from '../../../app/store/types';
 
 interface UseExportProcessProps {
@@ -10,8 +12,6 @@ interface UseExportProcessProps {
     videoFiles: MediaFile[];
     audioFiles: MediaFile[];
     cuts: CutSegment[];
-    ffmpeg: any;
-    isLoaded: boolean;
 }
 
 export type ExportPhase = 'config' | 'processing' | 'done';
@@ -22,23 +22,14 @@ export function useExportProcess({
     videoFiles,
     audioFiles,
     cuts,
-    ffmpeg,
-    isLoaded
 }: UseExportProcessProps) {
     const [phase, setPhase] = useState<ExportPhase>('config');
     const [progress, setProgress] = useState(0);
     const [progressLabel, setProgressLabel] = useState('');
-    const [outputBlob, setOutputBlob] = useState<Blob | null>(null);
-    const [outputUrl, setOutputUrl] = useState('');
+    const [outputPath, setOutputPath] = useState<string>('');
     const [elapsedTime, setElapsedTime] = useState(0);
 
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-    useEffect(() => {
-        return () => {
-            if (outputUrl) URL.revokeObjectURL(outputUrl);
-        };
-    }, [outputUrl]);
 
     useEffect(() => {
         if (phase === 'processing') {
@@ -50,104 +41,93 @@ export function useExportProcess({
     }, [phase]);
 
     const handleExport = useCallback(async () => {
-        if (!masterVideo || !isLoaded) return;
-
-        setPhase('processing');
-        setProgress(0);
-        setElapsedTime(0);
-        setProgressLabel('FFmpeg başlatılıyor...');
+        if (!masterVideo) return;
 
         try {
+            // 1. Pick where to save native file
+            const nameBase = masterVideo.name.replace(/\.[^/.]+$/, '');
+            const selectedPath = await save({
+                filters: [{
+                    name: 'Video',
+                    extensions: [config.format]
+                }],
+                defaultPath: `${nameBase}_podcut.${config.format}`
+            });
+
+            if (!selectedPath) {
+                // User cancelled
+                return;
+            }
+
+            setPhase('processing');
+            setProgress(0);
+            setElapsedTime(0);
             setProgressLabel('Video analiz ediliyor...');
+            setOutputPath(selectedPath);
+
+            // 2. Get accurate duration quickly
             const tempVideo = document.createElement('video');
-            tempVideo.src = URL.createObjectURL(masterVideo.file);
+            tempVideo.src = convertFileSrc(masterVideo.path);
             await new Promise((resolve) => {
                 tempVideo.onloadedmetadata = resolve;
             });
             const duration = tempVideo.duration;
-            URL.revokeObjectURL(tempVideo.src);
-
-            setProgressLabel('Dosyalar belleğe yükleniyor...');
-            await ffmpeg.writeFile('input_video_0', await fetchFile(masterVideo.file));
-
-            const otherVideos = videoFiles.filter(v => v.id !== masterVideo.id);
-            for (let i = 0; i < otherVideos.length; i++) {
-                await ffmpeg.writeFile(`input_video_${i + 1}`, await fetchFile(otherVideos[i].file));
-            }
-
-            if (config.includeAudio) {
-                for (let i = 0; i < audioFiles.length; i++) {
-                    await ffmpeg.writeFile(`input_audio_${i}`, await fetchFile(audioFiles[i].file));
-                }
-            }
-
-            const args = buildFFmpegCommand(config, cuts, duration, videoFiles, audioFiles, masterVideo.id);
-            console.log('FFmpeg Command:', args.join(' '));
 
             setProgressLabel('Video işleniyor...');
-            ffmpeg.on('progress', ({ progress }: any) => {
-                setProgress(Math.max(0, Math.min(1, progress)));
+
+            // 3. Build command and execute
+            const args = buildFFmpegCommand(config, cuts, duration, videoFiles, audioFiles, masterVideo.id, selectedPath);
+            console.log('Tauri FFmpeg Command:', args.join(' '));
+
+            const cmd = Command.create('ffmpeg', args);
+            
+            cmd.stderr.on('data', (line: string) => {
+                // parse: time=00:00:05.12
+                const match = line.match(/time=(\d+):(\d+):(\d+\.\d+)/);
+                if (match) {
+                    const h = parseInt(match[1], 10);
+                    const m = parseInt(match[2], 10);
+                    const s = parseFloat(match[3]);
+                    const timeInSeconds = h * 3600 + m * 60 + s;
+                    setProgress(Math.max(0, Math.min(1, timeInSeconds / duration)));
+                } else if (line.toLowerCase().includes('error')) {
+                    console.warn('FFmpeg stderr:', line);
+                }
             });
 
-            await ffmpeg.exec(args);
+            // Wait for command to close
+            const resultCode = await new Promise<number>((resolve, reject) => {
+                cmd.on('close', (data) => resolve(data.code ?? -1));
+                cmd.on('error', (err) => reject(new Error(`Command failure: ${err}`)));
+            });
 
-            setProgressLabel('Sonuç dosyası oluşturuluyor...');
-            const outputFilename = `output.${config.format}`;
-            const data = await ffmpeg.readFile(outputFilename);
-            const blob = new Blob([data as any], { type: `video/${config.format}` });
-            const url = URL.createObjectURL(blob);
-
-            setOutputBlob(blob);
-            setOutputUrl(url);
-            setPhase('done');
-
-            try {
-                await ffmpeg.deleteFile('input_video_0');
-                const otherVideos = videoFiles.filter(v => v.id !== masterVideo.id);
-                for (let i = 0; i < otherVideos.length; i++) {
-                    await ffmpeg.deleteFile(`input_video_${i + 1}`);
-                }
-                if (config.includeAudio) {
-                    for (let i = 0; i < audioFiles.length; i++) {
-                        await ffmpeg.deleteFile(`input_audio_${i}`);
-                    }
-                }
-                await ffmpeg.deleteFile(outputFilename);
-            } catch (cleanupErr) {
-                console.warn('Cleanup warning:', cleanupErr);
+            if (resultCode !== 0) {
+                throw new Error(`FFmpeg error (code ${resultCode})`);
             }
+
+            setProgress(1);
+            setProgressLabel('Tamamlandı');
+            setPhase('done');
 
         } catch (e) {
             console.error('Export failed:', e);
             setPhase('config');
-            alert(`Dışa aktarım başarısız oldu: ${e instanceof Error ? e.message : 'Bilinmeyen hata'}`);
+            alert(`Dışa aktarım başarısız oldu: ${e instanceof Error ? e.message : String(e)}`);
         }
-    }, [videoFiles, audioFiles, masterVideo, config, cuts, isLoaded, ffmpeg]);
-
-    const handleDownload = useCallback(() => {
-        if (!outputUrl || !masterVideo) return;
-        const name = masterVideo.file.name.replace(/\.[^/.]+$/, '');
-        const ext = config.format;
-        const a = document.createElement('a');
-        a.href = outputUrl;
-        a.download = `${name}_podcut.${ext}`;
-        a.click();
-    }, [outputUrl, config.format, masterVideo]);
+    }, [videoFiles, audioFiles, masterVideo, config, cuts]);
 
     const handleReset = useCallback(() => {
         setPhase('config');
-        setOutputBlob(null);
+        setOutputPath('');
     }, []);
 
     return {
         phase,
         progress,
         progressLabel,
-        outputBlob,
-        outputUrl,
+        outputPath,
         elapsedTime,
         handleExport,
-        handleDownload,
         handleReset
     };
 }

@@ -5,16 +5,18 @@ describe('extractEnvelope', () => {
     it('extracts a simple envelope and zero-means it', () => {
         const sampleRate = 8000;
         const envRate = 4000; // 2 samples per block
-        // Block 1: 0.5, -0.5 -> sum of abs = 1.0 -> avg = 0.5
-        // Block 2: 1.0, -1.0 -> sum of abs = 2.0 -> avg = 1.0
-        // Envelope before zero-mean: [0.5, 1.0]
-        // Mean = 0.75
-        // Final expected: [-0.25, 0.25]
+        // Block 1: [0.5, -0.5]
+        //   diff1 = |0.5-0| = 0.5, diff2 = |-0.5-0.5| = 1.0 -> max = 1.0
+        // Block 2: [1.0, -1.0]
+        //   diff3 = |1.0-(-0.5)| = 1.5, diff4 = |-1.0-1.0| = 2.0 -> max = 2.0
+        // Envelope before zero-mean: [1.0, 2.0]
+        // Mean = 1.5
+        // Final expected: [-0.5, 0.5]
         const signal = new Float32Array([0.5, -0.5, 1.0, -1.0]);
         const result = extractEnvelope(signal, sampleRate, envRate);
         expect(result).toHaveLength(2);
-        expect(result[0]).toBeCloseTo(-0.25);
-        expect(result[1]).toBeCloseTo(0.25);
+        expect(result[0]).toBeCloseTo(-0.5);
+        expect(result[1]).toBeCloseTo(0.5);
     });
 
     it('handles all-zero signal', () => {

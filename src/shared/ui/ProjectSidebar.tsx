@@ -3,15 +3,7 @@ import { useAppStore } from '../../app/store';
 import { Plus, Trash2, Edit2, Folder, Check, X } from 'lucide-react';
 
 export const ProjectSidebar: React.FC = () => {
-    const {
-        projects,
-        currentProjectId,
-        createProject,
-        switchProject,
-        deleteProject,
-        renameProject,
-        hydrateMediaFiles
-    } = useAppStore();
+    const { projects, currentProjectId, createProject, switchProject, renameProject, deleteProject } = useAppStore();
 
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editName, setEditName] = useState('');
@@ -21,10 +13,9 @@ export const ProjectSidebar: React.FC = () => {
         createProject(name);
     };
 
-    const handleSwitch = async (id: string) => {
+    const handleSwitch = (id: string) => {
         if (id === currentProjectId) return;
         switchProject(id);
-        await hydrateMediaFiles(id);
     };
 
     const handleDelete = (e: React.MouseEvent, id: string) => {

@@ -47,7 +47,7 @@ const FileItem: React.FC<{
 }> = ({ mediaFile, type, onRemove, onSetMaster }) => {
     const isVideo = type === 'video';
     const Icon = isVideo ? FileVideo : FileAudio;
-    const { file, isMaster } = mediaFile;
+    const { name, size, isMaster } = mediaFile;
 
     return (
         <div className={`relative border-2 rounded-xl p-4 flex items-center gap-4 transition-all duration-200 bg-white
@@ -61,14 +61,14 @@ const FileItem: React.FC<{
 
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold text-gray-900 truncate">{file.name}</h3>
+                    <h3 className="text-sm font-semibold text-gray-900 truncate">{name}</h3>
                     {isMaster && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">
                             <Star size={10} className="fill-amber-700" /> MASTER
                         </span>
                     )}
                 </div>
-                <p className="text-xs text-gray-500 mt-0.5">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+                <p className="text-xs text-gray-500 mt-0.5">{(size / (1024 * 1024)).toFixed(2)} MB</p>
 
                 {isVideo && !isMaster && onSetMaster && (
                     <button

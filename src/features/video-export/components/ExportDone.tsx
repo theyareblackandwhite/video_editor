@@ -1,17 +1,14 @@
 import React from 'react';
-import { Check, Download } from 'lucide-react';
+import { Check, FolderOpen } from 'lucide-react';
 import type { ExportConfig } from '../utils/ffmpegUtils';
 import { useAppStore } from '../../../app/store';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-shell';
 
 const QUALITY_LABELS: Record<ExportConfig['quality'], { label: string }> = {
     high: { label: 'Yüksek Kalite' },
     medium: { label: 'Orta Kalite' },
     low: { label: 'Düşük Kalite' },
-};
-
-const fmtSize = (bytes: number) => {
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
 const fmtTime = (s: number) => {
@@ -21,20 +18,16 @@ const fmtTime = (s: number) => {
 };
 
 interface Props {
-    outputBlob: Blob;
-    outputUrl: string;
+    outputPath: string;
     config: ExportConfig;
     elapsedTime: number;
-    onDownload: () => void;
     onReset: () => void;
 }
 
 export const ExportDone: React.FC<Props> = ({
-    outputBlob,
-    outputUrl,
+    outputPath,
     config,
     elapsedTime,
-    onDownload,
     onReset
 }) => {
     const setStep = useAppStore(s => s.setStep);
@@ -55,10 +48,10 @@ export const ExportDone: React.FC<Props> = ({
                     Videonuz başarıyla işlendi ve indirilmeye hazır.
                 </p>
 
-                {outputUrl && (
+                {outputPath && (
                     <div className="bg-black rounded-xl overflow-hidden mb-6 aspect-video">
                         <video
-                            src={outputUrl}
+                            src={convertFileSrc(outputPath)}
                             className="w-full h-full object-contain"
                             controls
                             playsInline
@@ -73,8 +66,8 @@ export const ExportDone: React.FC<Props> = ({
                             <span className="font-medium text-gray-800">{config.format.toUpperCase()}</span>
                         </div>
                         <div>
-                            <span className="text-gray-400 block text-xs">Boyut</span>
-                            <span className="font-medium text-gray-800">{fmtSize(outputBlob.size)}</span>
+                            <span className="text-gray-400 block text-xs">Konum</span>
+                            <span className="font-medium text-gray-800 text-xs break-all">{outputPath}</span>
                         </div>
                         <div>
                             <span className="text-gray-400 block text-xs">Kalite</span>
@@ -88,14 +81,20 @@ export const ExportDone: React.FC<Props> = ({
                 </div>
 
                 <button
-                    onClick={onDownload}
+                    onClick={async () => {
+                        try {
+                            await open(outputPath);
+                        } catch (e) {
+                            console.error('Dosya açılamadı', e);
+                        }
+                    }}
                     className="w-full py-4 px-6 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl
                         hover:from-green-700 hover:to-emerald-700 shadow-lg shadow-green-600/30
                         active:scale-[0.98] transition-all text-lg mb-3"
                 >
                     <div className="flex items-center justify-center gap-3">
-                        <Download size={22} />
-                        Videoyu İndir
+                        <FolderOpen size={22} />
+                        Videoyu Oynat
                     </div>
                 </button>
 
