@@ -1,4 +1,7 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import type { PersistStorage, StorageValue } from 'zustand/middleware';
+import * as idb from 'idb-keyval';
 
 export interface CutSegment {
     id: string;
@@ -42,53 +45,73 @@ interface AppState {
     setTransitionType: (type: TransitionType) => void;
 }
 
-export const useAppStore = create<AppState>((set) => ({
-    currentStep: 1,
-    videoFiles: [],
-    audioFiles: [],
-    cuts: [],
-    layoutMode: 'crop',
-    transitionType: 'none',
+export const idbStorage: PersistStorage<AppState> = {
+    getItem: async (name): Promise<StorageValue<AppState> | null> => {
+        return (await idb.get(name)) || null;
+    },
+    setItem: async (name, value): Promise<void> => {
+        await idb.set(name, value);
+    },
+    removeItem: async (name): Promise<void> => {
+        await idb.del(name);
+    },
+};
 
-    setStep: (step) => set({ currentStep: step }),
+export const useAppStore = create<AppState>()(
+    persist(
+        (set) => ({
+            currentStep: 1,
+            videoFiles: [],
+            audioFiles: [],
+            cuts: [],
+            layoutMode: 'crop',
+            transitionType: 'none',
 
-    addVideoFile: (file) => set((state) => {
-        const id = Math.random().toString(36).substring(7);
-        const newFiles = [...state.videoFiles, { id, file, syncOffset: 0, isMaster: state.videoFiles.length === 0 }];
-        return { videoFiles: newFiles };
-    }),
+            setStep: (step) => set({ currentStep: step }),
 
-    removeVideoFile: (id) => set((state) => {
-        const remaining = state.videoFiles.filter(f => f.id !== id);
-        // Ensure there's always one master if files remain
-        if (remaining.length > 0 && !remaining.some(f => f.isMaster)) {
-            remaining[0].isMaster = true;
+            addVideoFile: (file) => set((state) => {
+                const id = Math.random().toString(36).substring(7);
+                const newFiles = [...state.videoFiles, { id, file, syncOffset: 0, isMaster: state.videoFiles.length === 0 }];
+                return { videoFiles: newFiles };
+            }),
+
+            removeVideoFile: (id) => set((state) => {
+                const remaining = state.videoFiles.filter(f => f.id !== id);
+                // Ensure there's always one master if files remain
+                if (remaining.length > 0 && !remaining.some(f => f.isMaster)) {
+                    remaining[0].isMaster = true;
+                }
+                return { videoFiles: remaining };
+            }),
+
+            setMasterVideo: (id) => set((state) => ({
+                videoFiles: state.videoFiles.map(f => ({ ...f, isMaster: f.id === id }))
+            })),
+
+            setVideoSyncOffset: (id, offset) => set((state) => ({
+                videoFiles: state.videoFiles.map(f => f.id === id ? { ...f, syncOffset: offset } : f)
+            })),
+
+            addAudioFile: (file) => set((state) => {
+                const id = Math.random().toString(36).substring(7);
+                return { audioFiles: [...state.audioFiles, { id, file, syncOffset: 0 }] };
+            }),
+
+            removeAudioFile: (id) => set((state) => ({
+                audioFiles: state.audioFiles.filter(f => f.id !== id)
+            })),
+
+            setAudioSyncOffset: (id, offset) => set((state) => ({
+                audioFiles: state.audioFiles.map(f => f.id === id ? { ...f, syncOffset: offset } : f)
+            })),
+
+            setCuts: (cuts) => set({ cuts }),
+            setLayoutMode: (layoutMode) => set({ layoutMode }),
+            setTransitionType: (transitionType) => set({ transitionType }),
+        }),
+        {
+            name: 'video-editor-storage',
+            storage: idbStorage,
         }
-        return { videoFiles: remaining };
-    }),
-
-    setMasterVideo: (id) => set((state) => ({
-        videoFiles: state.videoFiles.map(f => ({ ...f, isMaster: f.id === id }))
-    })),
-
-    setVideoSyncOffset: (id, offset) => set((state) => ({
-        videoFiles: state.videoFiles.map(f => f.id === id ? { ...f, syncOffset: offset } : f)
-    })),
-
-    addAudioFile: (file) => set((state) => {
-        const id = Math.random().toString(36).substring(7);
-        return { audioFiles: [...state.audioFiles, { id, file, syncOffset: 0 }] };
-    }),
-
-    removeAudioFile: (id) => set((state) => ({
-        audioFiles: state.audioFiles.filter(f => f.id !== id)
-    })),
-
-    setAudioSyncOffset: (id, offset) => set((state) => ({
-        audioFiles: state.audioFiles.map(f => f.id === id ? { ...f, syncOffset: offset } : f)
-    })),
-
-    setCuts: (cuts) => set({ cuts }),
-    setLayoutMode: (layoutMode) => set({ layoutMode }),
-    setTransitionType: (transitionType) => set({ transitionType }),
-}));
+    )
+);
