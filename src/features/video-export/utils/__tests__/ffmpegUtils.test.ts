@@ -107,8 +107,8 @@ describe('buildFFmpegCommand', () => {
     const mockMasterVideo = { id: 'm1', path: '/m.mp4', name: 'm.mp4', type: 'video/mp4', size: 1000, syncOffset: 0, isMaster: true };
     const mockAudio = { id: 'a1', path: '/a.mp3', name: 'a.mp3', type: 'audio/mp3', size: 500, syncOffset: 0 };
 
-    it('generates mp4 with correct codec and CRF for high quality', () => {
-        const args = buildFFmpegCommand(baseConfig, [], 60, [mockMasterVideo], [], 'm1', '/output.mp4');
+    it('generates mp4 with correct codec and CRF for high quality when normalizeAudio is true (no passthrough)', () => {
+        const args = buildFFmpegCommand({ ...baseConfig, normalizeAudio: true }, [], 60, [mockMasterVideo], [], 'm1', '/output.mp4');
         expect(args).toContain('-c:v');
         expect(args).toContain('libx264');
         expect(args).toContain('-crf');
@@ -116,21 +116,28 @@ describe('buildFFmpegCommand', () => {
         expect(args).toContain('-movflags');
     });
 
-    it('generates mp4 with medium CRF', () => {
-        const args = buildFFmpegCommand({ ...baseConfig, quality: 'medium' }, [], 60, [mockMasterVideo], [], 'm1', '/output.mp4');
+    it('generates mp4 with medium CRF when normalizeAudio is true (no passthrough)', () => {
+        const args = buildFFmpegCommand({ ...baseConfig, quality: 'medium', normalizeAudio: true }, [], 60, [mockMasterVideo], [], 'm1', '/output.mp4');
         expect(args[args.indexOf('-crf') + 1]).toBe('28');
     });
 
-    it('generates mp4 with low CRF', () => {
-        const args = buildFFmpegCommand({ ...baseConfig, quality: 'low' }, [], 60, [mockMasterVideo], [], 'm1', '/output.mp4');
+    it('generates mp4 with low CRF when normalizeAudio is true (no passthrough)', () => {
+        const args = buildFFmpegCommand({ ...baseConfig, quality: 'low', normalizeAudio: true }, [], 60, [mockMasterVideo], [], 'm1', '/output.mp4');
         expect(args[args.indexOf('-crf') + 1]).toBe('32');
     });
 
-    it('generates webm with VP9 + Opus codecs', () => {
-        const args = buildFFmpegCommand({ ...baseConfig, format: 'webm' }, [], 60, [mockMasterVideo], [], 'm1', '/output.webm');
+    it('generates webm with VP9 + Opus codecs when normalizeAudio is true (no passthrough)', () => {
+        const args = buildFFmpegCommand({ ...baseConfig, format: 'webm', normalizeAudio: true }, [], 60, [mockMasterVideo], [], 'm1', '/output.webm');
         expect(args).toContain('libvpx-vp9');
         expect(args).toContain('libopus');
         expect(args[args.length - 1]).toBe('/output.webm');
+    });
+
+    it('uses stream copy (passthrough) when there are no cuts, no external audio, and no normalization', () => {
+        const args = buildFFmpegCommand(baseConfig, [], 60, [mockMasterVideo], [], 'm1', '/output.mp4');
+        expect(args).toContain('copy');
+        expect(args).not.toContain('libx264');
+        expect(args).not.toContain('-filter_complex');
     });
 
     it('includes second input when external audio is present', () => {
