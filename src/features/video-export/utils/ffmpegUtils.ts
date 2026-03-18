@@ -110,6 +110,35 @@ export const buildFFmpegCommand = (
     const segments = config.applyCuts ? getKeepSegments(cuts, totalDuration) : [{ start: 0, end: totalDuration }];
     const n = segments.length;
 
+    // --- Fast Export (Passthrough) Detection ---
+    // If there is only 1 video, no external audio, no cuts, no normalization, and no sync offset,
+    // and the format matches the target format, we can use stream copy (-c:v copy).
+    const isSingleVideo = otherVideos.length === 0 && masterVideo.syncOffset === 0;
+    const hasExternalAudio = config.includeAudio && audioFiles.length > 0;
+    const noCuts = !config.applyCuts || cuts.length === 0;
+    const noNormalization = !config.normalizeAudio;
+    // Check if the original video extension/type matches the target format to allow passthrough
+    const isFormatMatch = masterVideo.name.toLowerCase().endsWith(config.format) || masterVideo.type.includes(config.format);
+
+    if (isSingleVideo && !hasExternalAudio && noCuts && noNormalization && isFormatMatch) {
+        args.push('-c:v', 'copy');
+
+        // If the user explicitly disabled audio, remove it. Otherwise, copy it.
+        if (!config.includeAudio) {
+            args.push('-an');
+        } else {
+            args.push('-c:a', 'copy');
+        }
+
+        // essential for browser compatibility if mp4
+        if (config.format === 'mp4') {
+             args.push('-movflags', '+faststart');
+        }
+        args.push(outputPath);
+        return args;
+    }
+
+
     // --- Video Pre-processing (Layout & Sync) ---
     const videoStreams: string[] = [];
 
@@ -302,6 +331,8 @@ export const buildFFmpegCommand = (
     args.push('-map', `[${outV}]`, '-map', finalAudio);
 
     // --- Encoding Settings ---
+    args.push('-threads', '0'); // Use all available CPU cores for faster processing
+
     if (config.format === 'mp4') {
         const crf = config.quality === 'high' ? '23' : config.quality === 'medium' ? '28' : '32';
         args.push('-c:v', 'libx264', '-crf', crf, '-preset', 'ultrafast'); // 'ultrafast' for web performance
@@ -311,7 +342,7 @@ export const buildFFmpegCommand = (
     } else {
         // WebM
         const crf = config.quality === 'high' ? '30' : config.quality === 'medium' ? '35' : '40';
-        args.push('-c:v', 'libvpx-vp9', '-crf', crf, '-b:v', '0', '-deadline', 'realtime'); // 'realtime' for speed
+        args.push('-c:v', 'libvpx-vp9', '-crf', crf, '-b:v', '0', '-deadline', 'realtime', '-cpu-used', '4'); // 'realtime' and multi-threading options for vp9
         args.push('-c:a', 'libopus', '-b:a', '128k');
     }
 
