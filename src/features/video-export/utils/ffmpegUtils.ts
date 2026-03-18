@@ -83,8 +83,8 @@ export const buildFFmpegCommand = (
     masterVideoId: string,
     outputPath: string
 ): string[] => {
-    // Force terminal overwrite by default
-    const args: string[] = ['-y'];
+    // Force terminal overwrite by default and disable stdin interaction
+    const args: string[] = ['-y', '-nostdin'];
     const filterComplex: string[] = [];
 
     const masterVideo = videoFiles.find(v => v.id === masterVideoId)!;
