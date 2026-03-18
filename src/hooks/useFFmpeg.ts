@@ -17,11 +17,12 @@ export const useFFmpeg = () => {
 
         setIsLoading(true);
         // Load from local public directory — avoids CORS/COEP issues with CDN
-        const baseURL = `${window.location.origin}/ffmpeg`;
+        const baseURL = `${window.location.origin}/ffmpeg-mt`;
         try {
             await ffmpeg.load({
                 coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
                 wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+                workerURL: await toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript')
             });
             setIsLoaded(true);
         } catch (error) {

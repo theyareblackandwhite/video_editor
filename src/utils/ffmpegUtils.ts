@@ -151,9 +151,9 @@ export const buildFFmpegCommand = (
             // Simple scale to 720p height, preserving aspect ratio
             if (config.layoutMode === 'crop') {
                 // Crop to square-ish then scale
-                filterComplex.push(`${syncedVideos[i]}scale=-1:720,crop=ih:ih:in_w/2-ih/2:0[${scaleLabel}]`);
+                filterComplex.push(`${syncedVideos[i]}scale=-1:720:flags=fast_bilinear,crop=ih:ih:in_w/2-ih/2:0[${scaleLabel}]`);
             } else {
-                filterComplex.push(`${syncedVideos[i]}scale=-1:720,pad=ih*16/9:ih:(ow-iw)/2:0[${scaleLabel}]`);
+                filterComplex.push(`${syncedVideos[i]}scale=-1:720:flags=fast_bilinear,pad=ih*16/9:ih:(ow-iw)/2:0[${scaleLabel}]`);
             }
             scaledVideos.push(`[${scaleLabel}]`);
         }
@@ -300,7 +300,7 @@ export const buildFFmpegCommand = (
 
     // --- Encoding Settings ---
     if (config.format === 'mp4') {
-        const crf = config.quality === 'high' ? '18' : config.quality === 'medium' ? '23' : '28';
+        const crf = config.quality === 'high' ? '23' : config.quality === 'medium' ? '28' : '32';
         args.push('-c:v', 'libx264', '-crf', crf, '-preset', 'ultrafast'); // 'ultrafast' for web performance
         args.push('-c:a', 'aac', '-b:a', '192k');
         // essential for browser compatibility
