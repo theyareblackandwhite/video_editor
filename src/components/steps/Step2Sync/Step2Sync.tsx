@@ -577,7 +577,7 @@ export const Step2Sync: React.FC = () => {
                                     className="w-full overflow-hidden cursor-grab active:cursor-grabbing relative"
                                     onMouseDown={handleMouseDown}
                                 >
-                                    <div ref={targetContainer} className="w-full transition-transform duration-75 ease-out will-change-transform" />
+                                    <div ref={targetContainer} className="w-full will-change-transform" />
                                 </div>
                             </div>
                         </div>
