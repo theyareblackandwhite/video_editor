@@ -76,29 +76,25 @@ export const Step2Sync: React.FC = () => {
             if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
             if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
         };
-    }, [masterVideo, selectedTarget]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [masterVideo?.id, selectedTarget?.id]);
 
-    // Apply sync result to store
+    // Apply sync result to store ONCE, to prevent overwriting user's manual drags
+    const appliedResultsRef = useRef<string>('');
     useEffect(() => {
         if (results.length > 0) {
+            const resultsKey = JSON.stringify(results);
+            if (appliedResultsRef.current === resultsKey) return;
+            
             results.forEach(res => {
-                // Find if target is a video
                 const isVideo = videoFiles.some(v => v.id === res.id);
                 if (isVideo) {
-                    // We shouldn't dispatch to store in an effect like this if we can avoid it.
-                    // But we only want to update once when results arrive.
-                    // Let's check current offset so we don't dispatch continuously
-                    const vFile = videoFiles.find(v => v.id === res.id);
-                    if (vFile && vFile.syncOffset !== res.offsetSeconds) {
-                         setVideoSyncOffset(res.id, res.offsetSeconds);
-                    }
+                    setVideoSyncOffset(res.id, res.offsetSeconds);
                 } else {
-                    const aFile = audioFiles.find(a => a.id === res.id);
-                    if (aFile && aFile.syncOffset !== res.offsetSeconds) {
-                        setAudioSyncOffset(res.id, res.offsetSeconds);
-                    }
+                    setAudioSyncOffset(res.id, res.offsetSeconds);
                 }
             });
+            appliedResultsRef.current = resultsKey;
 
             // Set first target as selected by default
             if (!selectedTargetId && targetFiles.length > 0) {
@@ -201,7 +197,7 @@ export const Step2Sync: React.FC = () => {
             URL.revokeObjectURL(audioUrl);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [phase, masterVideo, selectedTarget]); // Deliberately omitting masterAmp and targetAmp to avoid recreating on amplitude change
+    }, [phase, masterVideo?.id, selectedTarget?.id]); // Deliberately omitting masterAmp and targetAmp to avoid recreating on amplitude change
 
     // Dynamically update amplitude without recreating WaveSurfer
     useEffect(() => {
@@ -344,14 +340,17 @@ export const Step2Sync: React.FC = () => {
         }
     }, [updateAudioVisualPosition]);
 
+    const setSyncOffsetRef = useRef(setSyncOffset);
+    useEffect(() => { setSyncOffsetRef.current = setSyncOffset; }, [setSyncOffset]);
+
     const handleMouseUp = useCallback(function onMouseUp() {
         if (dragStartX.current !== null) {
-            setSyncOffset(audioOffsetRef.current);
+            setSyncOffsetRef.current(audioOffsetRef.current);
         }
         dragStartX.current = null;
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
-    }, [handleMouseMove, setSyncOffset]);
+    }, [handleMouseMove]);
 
     const handleMouseDown = (e: React.MouseEvent) => {
         dragStartX.current = e.clientX;
@@ -359,6 +358,14 @@ export const Step2Sync: React.FC = () => {
         document.addEventListener('mousemove', handleMouseMove);
         document.addEventListener('mouseup', handleMouseUp);
     };
+
+    // Ensure we don't leak global drag listeners
+    useEffect(() => {
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [handleMouseMove, handleMouseUp]);
 
     // ── Render ──
 
