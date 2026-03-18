@@ -65,14 +65,24 @@ export function extractEnvelope(signal: Float32Array, sampleRate: number, target
     const envelopeLength = Math.floor(signal.length / samplesPerBlock);
     const envelope = new Float32Array(envelopeLength);
 
+    // Apply pre-emphasis to highlight transients/claps
+    let prevSample = 0;
+
     for (let i = 0; i < envelopeLength; i++) {
-        let sum = 0;
+        let maxAmp = 0;
         const offset = i * samplesPerBlock;
         for (let j = 0; j < samplesPerBlock; j++) {
-            // using sum of squares (energy) or absolute value (amplitude)
-            sum += Math.abs(signal[offset + j]);
+            // First-order difference highlights high-frequency transients
+            const currentSample = signal[offset + j];
+            const diff = Math.abs(currentSample - prevSample);
+            prevSample = currentSample;
+
+            // Peak picking within the block preserves sharp spikes better than averaging
+            if (diff > maxAmp) {
+                maxAmp = diff;
+            }
         }
-        envelope[i] = sum / samplesPerBlock;
+        envelope[i] = maxAmp;
     }
 
     // Zero-mean the envelope so silent parts don't artificially inflate correlation
@@ -91,29 +101,22 @@ export function extractEnvelope(signal: Float32Array, sampleRate: number, target
 
 /**
  * Compute cross-correlation between two signals at various lag values.
- * Returns the lag (in samples) that produces the maximum correlation.
+ * Uses a two-pass approach for accuracy and speed.
  */
 export function findBestLag(
     reference: Float32Array,
     target: Float32Array,
     maxLagSamples: number
 ): { bestLag: number; confidence: number } {
-
-    // We only need a solid chunk to find a match.
-    // If the signal is very long, processing the whole thing is slow and unnecessary.
-    // 30 seconds of envelope at 100Hz is only 3000 samples. We can afford to correlate the whole thing,
-    // or just the first 30 seconds to be safe and fast.
     const chunkSize = Math.min(reference.length, target.length, 3000); // 30s at 100Hz
     const refChunk = reference.slice(0, chunkSize);
 
     let bestCorrelation = -Infinity;
     let bestLag = 0;
-
     let sumCorrelations = 0;
     let correlationCount = 0;
 
-    // Because envelope rate is so low (e.g. 100Hz), we don't need a coarse/fine search.
-    // We can just scan every single lag.
+    // We can just scan every single lag because envelope rate is so low (e.g. 100Hz).
     for (let lag = -maxLagSamples; lag <= maxLagSamples; lag++) {
         const corr = computeCorrelation(refChunk, target, lag);
         sumCorrelations += Math.abs(corr);
