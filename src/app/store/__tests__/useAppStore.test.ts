@@ -30,26 +30,26 @@ describe('useAppStore', () => {
         expect(useAppStore.getState().currentStep).toBe(3);
     });
 
-    it('handles video files', () => {
+    it('handles video files', async () => {
         const mockVideo = new File([''], 'test.mp4', { type: 'video/mp4' });
-        useAppStore.getState().addVideoFile(mockVideo);
+        await useAppStore.getState().addVideoFile(mockVideo);
         expect(useAppStore.getState().videoFiles[0].file).toBe(mockVideo);
         expect(useAppStore.getState().videoFiles[0].isMaster).toBe(true);
 
         const mockVideo2 = new File([''], 'test2.mp4', { type: 'video/mp4' });
-        useAppStore.getState().addVideoFile(mockVideo2);
+        await useAppStore.getState().addVideoFile(mockVideo2);
         expect(useAppStore.getState().videoFiles).toHaveLength(2);
         expect(useAppStore.getState().videoFiles[1].isMaster).toBeFalsy();
     });
 
-    it('handles audio files', () => {
+    it('handles audio files', async () => {
         const mockAudio = new File([''], 'test.mp3', { type: 'audio/mp3' });
-        useAppStore.getState().addAudioFile(mockAudio);
+        await useAppStore.getState().addAudioFile(mockAudio);
         expect(useAppStore.getState().audioFiles[0].file).toBe(mockAudio);
     });
 
-    it('setVideoSyncOffset updates syncOffset', () => {
-        useAppStore.getState().addVideoFile(new File([''], 't.mp4'));
+    it('setVideoSyncOffset updates syncOffset', async () => {
+        await useAppStore.getState().addVideoFile(new File([''], 't.mp4'));
         const id = useAppStore.getState().videoFiles[0].id;
         useAppStore.getState().setVideoSyncOffset(id, 1.5);
         expect(useAppStore.getState().videoFiles[0].syncOffset).toBe(1.5);

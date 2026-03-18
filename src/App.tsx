@@ -4,7 +4,7 @@ import { AudioSync } from './features/audio-sync';
 import { TimelineEdit } from './features/timeline-edit';
 import { VideoExport } from './features/video-export';
 import { useAppStore } from './app/store';
-import { ErrorBoundary } from './shared/ui';
+import { ErrorBoundary, ProjectSidebar } from './shared/ui';
 import { StepBar } from './shared/ui';
 
 const StepComponents: Record<number, React.FC> = {
@@ -15,11 +15,36 @@ const StepComponents: Record<number, React.FC> = {
 };
 
 function App() {
-  const { currentStep } = useAppStore();
+  const { currentStep, createProject, switchProject, hydrateMediaFiles } = useAppStore();
+  const projectsLength = useAppStore(state => state.projects.length);
+  const currentProjectId = useAppStore(state => state.currentProjectId);
+  const firstProjectId = useAppStore(state => state.projects[0]?.id);
+
   const [displayedStep, setDisplayedStep] = useState(currentStep);
   const [direction, setDirection] = useState<'left' | 'right'>('right');
   const [animating, setAnimating] = useState(false);
   const prevStepRef = useRef(currentStep);
+
+  useEffect(() => {
+    // If no projects exist, create the default one.
+    if (projectsLength === 0) {
+      createProject('Adsız Proje 1');
+    } else if (projectsLength > 0 && !currentProjectId && firstProjectId) {
+      // If there are projects but none is selected, switch to the first one
+      switchProject(firstProjectId);
+      hydrateMediaFiles(firstProjectId).catch(console.error);
+    } else if (currentProjectId) {
+      // Perform initial hydration if we reload the page and have a current project
+      // Because current files are not persisted to localStorage.
+      const state = useAppStore.getState();
+      if (state.videoFiles.length === 0 && state.audioFiles.length === 0) {
+        const project = state.projects.find(p => p.id === currentProjectId);
+        if (project && (project.state.videoFiles.length > 0 || project.state.audioFiles.length > 0)) {
+          hydrateMediaFiles(currentProjectId).catch(console.error);
+        }
+      }
+    }
+  }, [projectsLength, currentProjectId, firstProjectId, createProject, switchProject, hydrateMediaFiles]);
 
   useEffect(() => {
     if (currentStep !== prevStepRef.current) {
@@ -67,15 +92,20 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      <StepBar />
-      <main className="max-w-7xl mx-auto p-4">
-        <div className={`transition-all duration-300 ease-out ${getTransformClass()}`}>
-          <ErrorBoundary>
-            <Component />
-          </ErrorBoundary>
-        </div>
-      </main>
+    <div className="min-h-screen bg-gray-50 text-gray-900 flex h-screen overflow-hidden">
+      <ProjectSidebar />
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        <StepBar />
+        <main className="flex-1 overflow-y-auto p-4">
+          <div className="max-w-7xl mx-auto">
+            <div className={`transition-all duration-300 ease-out ${getTransformClass()}`}>
+              <ErrorBoundary>
+                <Component />
+              </ErrorBoundary>
+            </div>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

@@ -25,7 +25,13 @@ export const useAppStore = create<AppState>()(
         }),
         {
             name: 'video-editor-storage',
-            storage: idbStorage,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            storage: idbStorage as any,
+            partialize: (state) => ({
+                projects: state.projects,
+                currentProjectId: state.currentProjectId,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            }) as any,
         }
     )
 );
