@@ -13,3 +13,28 @@ export interface MediaFile {
     syncOffset: number; // Offset relative to master
     isMaster?: boolean;
 }
+
+export interface MediaFileMeta {
+    id: string;
+    name: string;
+    type: string;
+    size: number;
+    syncOffset: number;
+    isMaster?: boolean;
+}
+
+export interface ProjectState {
+    currentStep: number;
+    videoFiles: MediaFileMeta[];
+    audioFiles: MediaFileMeta[];
+    cuts: CutSegment[];
+    layoutMode: LayoutMode;
+    transitionType: TransitionType;
+}
+
+export interface Project {
+    id: string;
+    name: string;
+    lastModified: number;
+    state: ProjectState;
+}

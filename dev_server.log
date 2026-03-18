@@ -1,0 +1,16 @@
+
+> video_editor@0.0.0 dev
+> vite
+
+
+  VITE v7.3.1  ready in 277 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+6:43:27 PM [vite] (client) hmr update /src/App.tsx, /src/features/media-upload/components/MediaUpload.tsx, /src/features/audio-sync/components/AudioSync.tsx, /src/features/timeline-edit/components/TimelineEdit.tsx, /src/features/video-export/components/VideoExport.tsx, /src/shared/ui/StepBar.tsx, /src/shared/ui/ProjectSidebar.tsx, /src/features/video-export/components/ExportDone.tsx, /src/index.css
+6:43:35 PM [vite] (client) hmr update /src/App.tsx, /src/features/media-upload/components/MediaUpload.tsx, /src/features/audio-sync/components/AudioSync.tsx, /src/features/timeline-edit/components/TimelineEdit.tsx, /src/features/video-export/components/VideoExport.tsx, /src/shared/ui/StepBar.tsx, /src/shared/ui/ProjectSidebar.tsx, /src/features/video-export/components/ExportDone.tsx, /src/index.css
+6:43:53 PM [vite] (client) hmr update /src/App.tsx, /src/features/media-upload/components/MediaUpload.tsx, /src/features/audio-sync/components/AudioSync.tsx, /src/features/timeline-edit/components/TimelineEdit.tsx, /src/features/video-export/components/VideoExport.tsx, /src/shared/ui/StepBar.tsx, /src/shared/ui/ProjectSidebar.tsx, /src/features/video-export/components/ExportDone.tsx, /src/index.css
+6:44:02 PM [vite] (client) hmr update /src/App.tsx, /src/features/media-upload/components/MediaUpload.tsx, /src/features/audio-sync/components/AudioSync.tsx, /src/features/timeline-edit/components/TimelineEdit.tsx, /src/features/video-export/components/VideoExport.tsx, /src/shared/ui/StepBar.tsx, /src/shared/ui/ProjectSidebar.tsx, /src/features/video-export/components/ExportDone.tsx, /src/index.css
+6:44:24 PM [vite] (client) hmr update /src/App.tsx, /src/index.css
+6:45:09 PM [vite] (client) hmr update /src/App.tsx, /src/features/media-upload/components/MediaUpload.tsx, /src/features/audio-sync/components/AudioSync.tsx, /src/features/timeline-edit/components/TimelineEdit.tsx, /src/features/video-export/components/VideoExport.tsx, /src/shared/ui/StepBar.tsx, /src/shared/ui/ProjectSidebar.tsx, /src/features/video-export/components/ExportDone.tsx, /src/index.css
+6:46:06 PM [vite] (client) hmr update /src/index.css
