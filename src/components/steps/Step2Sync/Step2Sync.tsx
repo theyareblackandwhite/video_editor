@@ -23,6 +23,8 @@ export const Step2Sync: React.FC = () => {
 
     const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
     const [zoom, setZoom] = useState(50);
+    const zoomRef = useRef(zoom);
+    useEffect(() => { zoomRef.current = zoom; }, [zoom]);
     const [masterAmp, setMasterAmp] = useState(1);
     const [targetAmp, setTargetAmp] = useState(1);
     const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
@@ -177,11 +179,15 @@ export const Step2Sync: React.FC = () => {
                 }
             });
 
+            masterWs.current.on('scroll', () => {
+                updateAudioVisualPosition(audioOffsetRef.current);
+            });
+
             masterWs.current.on('ready', () => {
-                try { masterWs.current?.zoom(zoom); } catch { /* */ }
+                try { masterWs.current?.zoom(zoomRef.current); } catch { /* */ }
             });
             targetWs.current.on('ready', () => {
-                try { targetWs.current?.zoom(zoom); } catch { /* */ }
+                try { targetWs.current?.zoom(zoomRef.current); } catch { /* */ }
                 updateAudioVisualPosition(audioOffsetRef.current);
             });
         } catch (e) {
@@ -211,11 +217,20 @@ export const Step2Sync: React.FC = () => {
     }, [targetAmp]);
 
     const updateAudioVisualPosition = useCallback((offsetTime: number) => {
-        if (targetContainer.current) {
-            const pixelOffset = offsetTime * zoom;
-            targetContainer.current.style.transform = `translateX(${pixelOffset}px)`;
+        if (!masterWs.current || !targetWs.current || !targetContainer.current) return;
+        const masterScroll = masterWs.current.getScroll();
+        const currentZoom = zoomRef.current;
+        const pixelOffset = offsetTime * currentZoom;
+        const targetTimelinePos = masterScroll - pixelOffset;
+
+        if (targetTimelinePos < 0) {
+            targetWs.current.setScroll(0);
+            targetContainer.current.style.transform = `translateX(${-targetTimelinePos}px)`;
+        } else {
+            targetWs.current.setScroll(targetTimelinePos);
+            targetContainer.current.style.transform = `translateX(0px)`;
         }
-    }, [zoom]);
+    }, []);
 
     // Apply Zoom to both
     useEffect(() => {
@@ -317,7 +332,8 @@ export const Step2Sync: React.FC = () => {
     const handleMouseMove = useCallback((e: MouseEvent) => {
         if (dragStartX.current === null) return;
         const deltaPixels = e.clientX - dragStartX.current;
-        const deltaSeconds = deltaPixels / zoom;
+        const currentZoom = zoomRef.current;
+        const deltaSeconds = deltaPixels / currentZoom;
         const newOffset = draggingOffsetStart.current + deltaSeconds;
         audioOffsetRef.current = newOffset;
         updateAudioVisualPosition(newOffset);
@@ -326,7 +342,7 @@ export const Step2Sync: React.FC = () => {
             const sign = newOffset >= 0 ? '+' : '';
             offsetTextRef.current.innerText = `${sign}${newOffset.toFixed(3)}s`;
         }
-    }, [zoom, updateAudioVisualPosition]);
+    }, [updateAudioVisualPosition]);
 
     const handleMouseUp = useCallback(function onMouseUp() {
         if (dragStartX.current !== null) {
