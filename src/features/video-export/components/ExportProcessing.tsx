@@ -1,11 +1,7 @@
 import React from 'react';
 import { Loader2, Clock } from 'lucide-react';
+import { formatTime } from '../../../shared/utils';
 
-const fmtTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m}:${String(sec).padStart(2, '0')}`;
-};
 
 interface Props {
     progress: number;
@@ -42,7 +38,7 @@ export const ExportProcessing: React.FC<Props> = ({ progress, progressLabel, ela
                 <div className="flex justify-between text-xs text-gray-400">
                     <span>%{Math.round(progress * 100)}</span>
                     <span className="flex items-center gap-1">
-                        <Clock size={12} /> {fmtTime(elapsedTime)}
+                        <Clock size={12} /> {formatTime(elapsedTime)}
                     </span>
                 </div>
             </div>

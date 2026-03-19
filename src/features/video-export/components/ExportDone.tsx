@@ -4,6 +4,7 @@ import type { ExportConfig } from '../utils/ffmpegUtils';
 import { useAppStore } from '../../../app/store';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-shell';
+import { formatTime } from '../../../shared/utils';
 
 const QUALITY_LABELS: Record<ExportConfig['quality'], { label: string }> = {
     high: { label: 'Yüksek Kalite' },
@@ -11,11 +12,6 @@ const QUALITY_LABELS: Record<ExportConfig['quality'], { label: string }> = {
     low: { label: 'Düşük Kalite' },
 };
 
-const fmtTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m}:${String(sec).padStart(2, '0')}`;
-};
 
 interface Props {
     outputPath: string;
@@ -75,7 +71,7 @@ export const ExportDone: React.FC<Props> = ({
                         </div>
                         <div>
                             <span className="text-gray-400 block text-xs">Süre</span>
-                            <span className="font-medium text-gray-800">{fmtTime(elapsedTime)}</span>
+                            <span className="font-medium text-gray-800">{formatTime(elapsedTime)}</span>
                         </div>
                     </div>
                 </div>
