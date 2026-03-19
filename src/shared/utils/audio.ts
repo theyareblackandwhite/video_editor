@@ -79,8 +79,16 @@ export async function detectSilences(
 
     // Process in small chunks for a bit more efficiency (though still all in memory)
     const chunkSize = Math.floor(0.1 * sampleRate);
+    let lastYieldTime = Date.now();
+    const YIELD_INTERVAL_MS = 16; // Yield every ~frame (16ms)
 
     for (let i = 0; i < samples.length; i += chunkSize) {
+        // Yield to main thread to keep UI responsive
+        if (Date.now() - lastYieldTime > YIELD_INTERVAL_MS) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+            lastYieldTime = Date.now();
+        }
+
         const endIdx = Math.min(i + chunkSize, samples.length);
 
         let maxAmp = 0;

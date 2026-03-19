@@ -19,8 +19,7 @@ export interface AutoSyncResult {
 
 export const TARGET_SAMPLE_RATE = 8000; // Downsample to 8kHz for speed
 const MAX_OFFSET_SECONDS = 30;  // Maximum expected drift between tracks
-
-
+const envelopeCache = new WeakMap<Float32Array, Map<number, Float32Array>>();
 
 /**
  * Extract a low-resolution envelope from a raw audio signal.
@@ -29,6 +28,16 @@ const MAX_OFFSET_SECONDS = 30;  // Maximum expected drift between tracks
  * noise profiles, and slight pitch shifts.
  */
 export function extractEnvelope(signal: Float32Array, sampleRate: number, targetEnvelopeRate: number = 100): Float32Array {
+    // Check cache: signal object + targetEnvelopeRate
+    let signalCache = envelopeCache.get(signal);
+    if (!signalCache) {
+        signalCache = new Map();
+        envelopeCache.set(signal, signalCache);
+    }
+
+    const cached = signalCache.get(targetEnvelopeRate);
+    if (cached) return cached;
+
     const samplesPerBlock = Math.floor(sampleRate / targetEnvelopeRate);
     const envelopeLength = Math.floor(signal.length / samplesPerBlock);
     const envelope = new Float32Array(envelopeLength);
@@ -64,6 +73,7 @@ export function extractEnvelope(signal: Float32Array, sampleRate: number, target
         envelope[i] -= mean;
     }
 
+    signalCache.set(targetEnvelopeRate, envelope);
     return envelope;
 }
 
