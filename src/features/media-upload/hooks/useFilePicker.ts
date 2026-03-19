@@ -37,8 +37,11 @@ export const useFilePicker = ({ accept, type }: UseFilePickerOptions): UseFilePi
         setIsLoading(true);
         setError(null);
         setWarning(null);
+        console.log(`[useFilePicker] Picking ${type} file...`);
         try {
             const extensions = Object.values(accept).flat().map(ext => ext.replace('.', ''));
+            console.log(`[useFilePicker] Filters:`, extensions);
+            
             const selected = await open({
                 multiple: false,
                 filters: [{
@@ -47,22 +50,41 @@ export const useFilePicker = ({ accept, type }: UseFilePickerOptions): UseFilePi
                 }]
             });
 
-            if (selected && typeof selected === 'string') {
-                const path = selected;
+            console.log(`[useFilePicker] Selected raw:`, selected);
+
+            if (selected) {
+                // Tauri 2.0 can return a string or an array depending on internal state, 
+                // even if multiple is false. Defensive check.
+                const path = Array.isArray(selected) ? selected[0] : selected;
+                
+                if (typeof path !== 'string') {
+                    console.error(`[useFilePicker] Selected path is not a string:`, path);
+                    return null;
+                }
+
+                console.log(`[useFilePicker] Getting stats for:`, path);
                 const fileStat = await stat(path);
+                console.log(`[useFilePicker] File stats:`, fileStat);
+                
                 const size = fileStat.size || 0;
-                
                 const name = path.split(/[/\\]/).pop() || 'unknown';
-                
                 const ext = name.split('.').pop()?.toLowerCase() || '';
                 const mimeType = type === 'video' ? `video/${ext === 'mkv' ? 'x-matroska' : ext}` : `audio/${ext}`;
 
+                console.log(`[useFilePicker] File info:`, { name, size, mimeType });
+
                 const validation = applyValidation(size);
-                if (!validation.ok) return null;
+                if (!validation.ok) {
+                    console.warn(`[useFilePicker] Validation failed:`, validation.error);
+                    return null;
+                }
 
                 return { path, name, size, type: mimeType };
+            } else {
+                console.log(`[useFilePicker] Selection cancelled by user.`);
             }
         } catch (err: unknown) {
+            console.error(`[useFilePicker] Error during pick:`, err);
             if (err instanceof Error) {
                 setError(err.message || 'Dosya seçilirken hata oluştu');
             }

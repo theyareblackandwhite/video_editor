@@ -124,25 +124,29 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
         }
 
         saveTimeout = setTimeout(() => {
-            const state = get();
-            if (!state.currentProjectId) return;
+            const currentMetadata = {
+                videoFiles: get().videoFiles,
+                audioFiles: get().audioFiles,
+                cuts: get().cuts,
+                currentStep: get().currentStep,
+                layoutMode: get().layoutMode,
+                transitionType: get().transitionType,
+            };
 
-            const videoFilesMeta = state.videoFiles;
-            const audioFilesMeta = state.audioFiles;
+            const projectId = get().currentProjectId;
+            if (!projectId) return;
+
+            console.log(`[appSlice] Auto-saving project ${projectId} state...`, currentMetadata);
 
             set((state) => ({
                 projects: state.projects.map(p =>
-                    p.id === state.currentProjectId
+                    p.id === projectId
                         ? {
                             ...p,
                             lastModified: Date.now(),
                             state: {
-                                currentStep: state.currentStep,
-                                videoFiles: videoFilesMeta,
-                                audioFiles: audioFilesMeta,
-                                cuts: state.cuts,
-                                layoutMode: state.layoutMode,
-                                transitionType: state.transitionType,
+                                ...p.state,
+                                ...currentMetadata,
                             }
                         }
                         : p

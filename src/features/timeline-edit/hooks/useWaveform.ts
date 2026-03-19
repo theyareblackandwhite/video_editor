@@ -47,17 +47,17 @@ export function useWaveform({
             barRadius: 1,
         });
 
+        const updateScrollInfo = () => {
+            const el = waveContainerRef.current?.querySelector<HTMLElement>('div');
+            if (el) {
+                setWaveScroll({ left: el.scrollLeft, width: el.scrollWidth });
+            }
+        };
+
         wsRef.current.load(url);
         wsRef.current.on('ready', (d) => {
             setDuration(prev => prev > 0 ? prev : d);
             try { wsRef.current?.zoom(zoomRef.current); } catch { /* */ }
-
-            const updateScrollInfo = () => {
-                const el = waveContainerRef.current?.querySelector<HTMLElement>('div') as HTMLElement | null;
-                if (el) {
-                    setWaveScroll({ left: el.scrollLeft, width: el.scrollWidth });
-                }
-            };
 
             requestAnimationFrame(() => { updateScrollInfo(); });
 
@@ -66,13 +66,21 @@ export function useWaveform({
                 el.addEventListener('scroll', updateScrollInfo);
             });
         });
+
         wsRef.current.on('click', (progress: number) => {
             const t = progress * (wsRef.current?.getDuration() || 0);
             seekToRef.current(t);
         });
 
         return () => {
-            if (wsRef.current) { wsRef.current.destroy(); wsRef.current = null; }
+            const scrollEls = waveContainerRef.current?.querySelectorAll('div') || [];
+            scrollEls.forEach(el => {
+                el.removeEventListener('scroll', updateScrollInfo);
+            });
+            if (wsRef.current) {
+                wsRef.current.destroy();
+                wsRef.current = null;
+            }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [masterVideo?.id]);
