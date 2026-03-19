@@ -2,6 +2,7 @@ import React from 'react';
 import { FileVideo, FileAudio, X, AlertCircle, Plus, Star } from 'lucide-react';
 import { useAppStore, type MediaFile } from '../../../app/store';
 import { useFilePicker } from '../hooks/useFilePicker';
+import { ask } from '@tauri-apps/plugin-dialog';
 
 const EmptyCard: React.FC<{
     type: 'video' | 'audio';
@@ -109,6 +110,26 @@ export const MediaUpload: React.FC = () => {
         type: 'audio',
     });
 
+    const handleRemoveVideo = async (id: string, name: string) => {
+        const confirmed = await ask(`${name} videosunu silmek istediğinize emin misiniz?`, {
+            title: 'Dosyayı Sil',
+            kind: 'warning',
+            okLabel: 'Sil',
+            cancelLabel: 'İptal'
+        });
+        if (confirmed) removeVideoFile(id);
+    };
+
+    const handleRemoveAudio = async (id: string, name: string) => {
+        const confirmed = await ask(`${name} ses dosyasını silmek istediğinize emin misiniz?`, {
+            title: 'Dosyayı Sil',
+            kind: 'warning',
+            okLabel: 'Sil',
+            cancelLabel: 'İptal'
+        });
+        if (confirmed) removeAudioFile(id);
+    };
+
     const handlePickVideo = async () => {
         const file = await videoPicker.pickFile();
         if (file) addVideoFile(file);
@@ -143,7 +164,7 @@ export const MediaUpload: React.FC = () => {
                                 key={vf.id}
                                 mediaFile={vf}
                                 type="video"
-                                onRemove={() => removeVideoFile(vf.id)}
+                                onRemove={() => handleRemoveVideo(vf.id, vf.name)}
                                 onSetMaster={() => setMasterVideo(vf.id)}
                             />
                         ))}
@@ -170,7 +191,7 @@ export const MediaUpload: React.FC = () => {
                                 key={af.id}
                                 mediaFile={af}
                                 type="audio"
-                                onRemove={() => removeAudioFile(af.id)}
+                                onRemove={() => handleRemoveAudio(af.id, af.name)}
                             />
                         ))}
                         <EmptyCard

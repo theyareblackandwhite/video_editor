@@ -50,37 +50,32 @@ export const useFilePicker = ({ accept, type }: UseFilePickerOptions): UseFilePi
                 }]
             });
 
-            console.log(`[useFilePicker] Selected:`, selected);
+            console.log(`[useFilePicker] Selected file:`, selected);
 
             if (selected) {
                 const path = Array.isArray(selected) ? selected[0] : selected;
                 
                 if (typeof path !== 'string') {
-                    console.error(`[useFilePicker] Invalid path type:`, typeof path);
+                    console.error(`[useFilePicker] Invalid path:`, path);
                     return null;
                 }
 
                 let size = 0;
                 try {
-                    console.log(`[useFilePicker] Fetching metadata for:`, path);
                     const fileStat = await stat(path);
                     size = fileStat.size || 0;
-                    console.log(`[useFilePicker] Stat success, size:`, size);
                 } catch (statErr) {
-                    console.warn(`[useFilePicker] Stat failed:`, statErr);
-                    // Minimal logging for diagnosis
-                    console.error("Metadata error:", statErr);
+                    console.warn(`[useFilePicker] Could not get file size:`, statErr);
                 }
                 
                 const name = path.split(/[/\\]/).pop() || 'unknown';
                 const ext = name.split('.').pop()?.toLowerCase() || '';
                 const mimeType = type === 'video' ? `video/${ext === 'mkv' ? 'x-matroska' : ext}` : `audio/${ext}`;
 
-                // Apply validation only if we got a real size
                 if (size > 0) {
                     const validation = applyValidation(size);
                     if (!validation.ok) {
-                        console.error(`[useFilePicker] Validation failed:`, validation.error);
+                        console.error(`[useFilePicker] Size validation failed:`, validation.error);
                         return null;
                     }
                 }
