@@ -115,6 +115,9 @@ export function useExportProcess({
                 resultCode = await new Promise<number>((resolve, reject) => {
                     cmd.on('close', (data) => resolve(data.code ?? -1));
                     cmd.on('error', (err) => reject(new Error(`Command failure: ${err}`)));
+
+                    // Actually start the process
+                    cmd.spawn().catch(reject);
                 });
             } finally {
                 clearInterval(fakeProgressInterval);

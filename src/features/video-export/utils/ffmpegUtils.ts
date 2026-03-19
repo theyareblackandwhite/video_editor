@@ -335,7 +335,40 @@ export const buildFFmpegCommand = (
 
     if (config.format === 'mp4') {
         const crf = config.quality === 'high' ? '23' : config.quality === 'medium' ? '28' : '32';
-        args.push('-c:v', 'libx264', '-crf', crf, '-preset', 'ultrafast'); // 'ultrafast' for web performance
+
+        // Determine hardware encoder based on OS
+        let osType = 'unknown';
+        if (typeof navigator !== 'undefined') {
+            const ua = navigator.userAgent.toLowerCase();
+            if (ua.includes('mac') && !ua.includes('windows')) {
+                osType = 'macos';
+            } else if (ua.includes('win')) {
+                osType = 'windows';
+            }
+        }
+
+        let videoCodec = 'libx264';
+        if (osType === 'macos') {
+            videoCodec = 'h264_videotoolbox';
+        } else if (osType === 'windows') {
+            videoCodec = 'h264_nvenc';
+        }
+
+        args.push('-c:v', videoCodec);
+
+        if (videoCodec === 'libx264') {
+             args.push('-crf', crf, '-preset', 'ultrafast'); // 'ultrafast' for web performance
+        } else if (videoCodec === 'h264_nvenc') {
+             // nvenc uses cq (Constant Quality) or rc (Rate Control) instead of crf.
+             // We map our CRF values to CQ reasonably.
+             args.push('-rc', 'vbr', '-cq', crf, '-preset', 'p1'); // p1 is fast preset
+        } else if (videoCodec === 'h264_videotoolbox') {
+             // videotoolbox does not support crf. It uses q:v (1-100) or bitrate.
+             // Using q:v as an approximation for quality mapping.
+             const qv = config.quality === 'high' ? '60' : config.quality === 'medium' ? '50' : '40';
+             args.push('-q:v', qv);
+        }
+
         args.push('-c:a', 'aac', '-b:a', '192k');
         // essential for browser compatibility
         args.push('-movflags', '+faststart');
