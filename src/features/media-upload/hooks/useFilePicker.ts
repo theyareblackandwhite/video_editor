@@ -50,33 +50,39 @@ export const useFilePicker = ({ accept, type }: UseFilePickerOptions): UseFilePi
                 }]
             });
 
-            console.log(`[useFilePicker] Selected raw:`, selected);
+            console.log(`[useFilePicker] Selected:`, selected);
 
             if (selected) {
-                // Tauri 2.0 can return a string or an array depending on internal state, 
-                // even if multiple is false. Defensive check.
                 const path = Array.isArray(selected) ? selected[0] : selected;
                 
                 if (typeof path !== 'string') {
-                    console.error(`[useFilePicker] Selected path is not a string:`, path);
+                    console.error(`[useFilePicker] Invalid path type:`, typeof path);
                     return null;
                 }
 
-                console.log(`[useFilePicker] Getting stats for:`, path);
-                const fileStat = await stat(path);
-                console.log(`[useFilePicker] File stats:`, fileStat);
+                let size = 0;
+                try {
+                    console.log(`[useFilePicker] Fetching metadata for:`, path);
+                    const fileStat = await stat(path);
+                    size = fileStat.size || 0;
+                    console.log(`[useFilePicker] Stat success, size:`, size);
+                } catch (statErr) {
+                    console.warn(`[useFilePicker] Stat failed:`, statErr);
+                    // Minimal logging for diagnosis
+                    console.error("Metadata error:", statErr);
+                }
                 
-                const size = fileStat.size || 0;
                 const name = path.split(/[/\\]/).pop() || 'unknown';
                 const ext = name.split('.').pop()?.toLowerCase() || '';
                 const mimeType = type === 'video' ? `video/${ext === 'mkv' ? 'x-matroska' : ext}` : `audio/${ext}`;
 
-                console.log(`[useFilePicker] File info:`, { name, size, mimeType });
-
-                const validation = applyValidation(size);
-                if (!validation.ok) {
-                    console.warn(`[useFilePicker] Validation failed:`, validation.error);
-                    return null;
+                // Apply validation only if we got a real size
+                if (size > 0) {
+                    const validation = applyValidation(size);
+                    if (!validation.ok) {
+                        console.error(`[useFilePicker] Validation failed:`, validation.error);
+                        return null;
+                    }
                 }
 
                 return { path, name, size, type: mimeType };

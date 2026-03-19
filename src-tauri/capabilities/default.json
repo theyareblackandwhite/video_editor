@@ -10,6 +10,14 @@
     "dialog:default",
     "fs:default",
     {
+      "identifier": "fs:allow-exists",
+      "allow": [{ "path": "**" }]
+    },
+    {
+      "identifier": "fs:allow-stat",
+      "allow": [{ "path": "**" }]
+    },
+    {
       "identifier": "shell:allow-execute",
       "allow": [
         {
