@@ -155,6 +155,8 @@ export const TimelineEdit: React.FC = () => {
                             handleMarkIn={handleMarkIn}
                             handleCutOut={handleCutOut}
                             masterVideo={masterVideo}
+                            videoFiles={videoFiles}
+                            audioFiles={audioFiles}
                             cuts={cuts}
                             setCuts={setCuts}
                             fmtTime={fmtTime}

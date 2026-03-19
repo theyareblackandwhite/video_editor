@@ -9,6 +9,8 @@ interface CutToolbarProps {
     handleMarkIn: () => void;
     handleCutOut: () => void;
     masterVideo: MediaFile | undefined;
+    videoFiles: MediaFile[];
+    audioFiles: MediaFile[];
     cuts: { id: string; start: number; end: number }[];
     setCuts: (cuts: { id: string; start: number; end: number }[]) => void;
     fmtTime: (s: number) => string;
@@ -19,6 +21,8 @@ export const CutToolbar: React.FC<CutToolbarProps> = ({
     handleMarkIn,
     handleCutOut,
     masterVideo,
+    videoFiles,
+    audioFiles,
     cuts,
     setCuts,
     fmtTime,
@@ -32,7 +36,7 @@ export const CutToolbar: React.FC<CutToolbarProps> = ({
         if (!masterVideo) return;
         setIsDetectingSilences(true);
         try {
-            const newCuts = await detectSilences(masterVideo.path, silenceThreshold, silenceDuration);
+            const newCuts = await detectSilences(masterVideo, videoFiles, audioFiles, silenceThreshold, silenceDuration);
             if (newCuts.length > 0) {
                 setCuts([...cuts, ...newCuts]);
                 alert(`${newCuts.length} sessiz bölüm bulundu ve kesim listesine eklendi.`);

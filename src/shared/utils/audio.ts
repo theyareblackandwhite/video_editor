@@ -2,7 +2,7 @@ import { Command } from '@tauri-apps/plugin-shell';
 import { tempDir, join } from '@tauri-apps/api/path';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { mkdir, exists } from '@tauri-apps/plugin-fs';
-import { type CutSegment } from '../../app/store/types';
+import { type CutSegment, type MediaFile } from '../../app/store/types';
 
 /**
  * Extracts audio to a temporary WAV file using Native FFmpeg.
@@ -14,7 +14,7 @@ async function extractAudioWav(
 ): Promise<string> {
     const dataDir = await tempDir();
     
-    // Ensure data directory exists (though tempDir usually exists)
+    // Ensure data directory exists
     try {
         if (!(await exists(dataDir))) {
             await mkdir(dataDir, { recursive: true });
@@ -46,16 +46,92 @@ async function extractAudioWav(
         }
     };
 
-    // 1. Try default ffmpeg
     const res1 = await tryCommand('ffmpeg');
     if (res1 === true) return outPath;
 
-    // 2. Try homebrew path fallback on Mac
     const res2 = await tryCommand('/opt/homebrew/bin/ffmpeg');
     if (res2 === true) return outPath;
 
-    // If both failed, throw a descriptive error
     throw new Error(`FFmpeg ses çıkarma başarısız oldu. \nHata 1: ${res1}\nHata 2: ${res2}`);
+}
+
+/**
+ * Extracts a synchronized mixed audio WAV file from multiple sources.
+ */
+async function extractSyncedAudioWav(
+    masterVideo: MediaFile,
+    videoFiles: MediaFile[],
+    audioFiles: MediaFile[],
+    sampleRate: number
+): Promise<string> {
+    const dataDir = await tempDir();
+    const outPath = await join(dataDir, `synced_audio_${Date.now()}_${crypto.randomUUID()}.wav`);
+    
+    const otherVideos = videoFiles.filter(v => v.id !== masterVideo.id);
+    const allInputs = [masterVideo, ...otherVideos, ...audioFiles];
+    
+    const args: string[] = ['-y', '-nostdin'];
+    
+    // Add all inputs
+    allInputs.forEach(file => {
+        args.push('-i', file.path);
+    });
+    
+    // Build filter complex for mixing
+    const audioStreams: string[] = [];
+    const filterComplex: string[] = [];
+    
+    allInputs.forEach((file, index) => {
+        const offset = file.syncOffset || 0;
+        const inputLabel = `[${index}:a]`;
+        const syncedLabel = `[a${index}_synced]`;
+        
+        if (offset !== 0) {
+            if (offset > 0) {
+                // Delay start
+                const delayMs = Math.round(offset * 1000);
+                filterComplex.push(`${inputLabel}adelay=${delayMs}|${delayMs}${syncedLabel}`);
+            } else {
+                // Trim start
+                const trimS = Math.abs(offset);
+                filterComplex.push(`${inputLabel}atrim=start=${trimS},asetpts=PTS-STARTPTS${syncedLabel}`);
+            }
+            audioStreams.push(syncedLabel);
+        } else {
+            audioStreams.push(inputLabel);
+        }
+    });
+    
+    let finalAudioLabel = audioStreams[0];
+    if (audioStreams.length > 1) {
+        finalAudioLabel = '[a_mixed]';
+        filterComplex.push(`${audioStreams.join('')}amix=inputs=${audioStreams.length}:normalize=0${finalAudioLabel}`);
+    }
+    
+    if (filterComplex.length > 0) {
+        args.push('-filter_complex', filterComplex.join(';'));
+    }
+    
+    args.push('-map', finalAudioLabel, '-ac', '1', '-ar', sampleRate.toString(), '-f', 'wav', outPath);
+    
+    const tryCommand = async (cmdName: string) => {
+        try {
+            const cmd = Command.create(cmdName, args);
+            const result = await cmd.execute();
+            if (result.code === 0) return true;
+            return result.stderr;
+        } catch (e) {
+            return String(e);
+        }
+    };
+
+    const res1 = await tryCommand('ffmpeg');
+    if (res1 === true) return outPath;
+
+    const res2 = await tryCommand('/opt/homebrew/bin/ffmpeg');
+    if (res2 === true) return outPath;
+
+    throw new Error(`Senkronize ses çıkarma başarısız oldu.\nHata 1: ${res1}\nHata 2: ${res2}`);
 }
 
 /**
@@ -108,16 +184,48 @@ export async function decodeToMono(
 }
 
 /**
- * Detect silent regions in an audio file.
+ * Detect silent regions in a synchronized timeline.
  * Returns a list of segments representing the silences.
  */
 export async function detectSilences(
-    filePath: string,
+    masterVideo: MediaFile,
+    videoFiles: MediaFile[],
+    audioFiles: MediaFile[],
     thresholdDb: number,
     minDurationSeconds: number
 ): Promise<CutSegment[]> {
     const sampleRate = 8000;
-    const samples = await decodeToMono(filePath, sampleRate);
+    
+    // 1. Extract synchronized mixed WAV
+    console.log('Starting detectSilences with synced merge...');
+    const wavPath = await extractSyncedAudioWav(masterVideo, videoFiles, audioFiles, sampleRate);
+    console.log('Synced WAV extracted to:', wavPath);
+    
+    // 2. Fetch the extracted wav into browser memory
+    const assetUrl = convertFileSrc(wavPath);
+    let arrayBuffer: ArrayBuffer;
+    try {
+        const response = await fetch(assetUrl);
+        if (!response.ok) {
+            throw new Error(`Fetch failed: ${response.status} ${response.statusText}`);
+        }
+        arrayBuffer = await response.arrayBuffer();
+    } catch (e) {
+        console.error('Failed to fetch merged audio:', e);
+        throw new Error(`Birleştirilmiş ses dosyası yüklenemedi: ${e}`);
+    }
+    
+    // 3. Decode into Float32Array
+    let samples: Float32Array;
+    try {
+        const tempCtx = new AudioContext();
+        const decoded = await tempCtx.decodeAudioData(arrayBuffer);
+        samples = decoded.getChannelData(0);
+        await tempCtx.close();
+    } catch (e) {
+        console.error('Failed to decode audio data:', e);
+        throw new Error(`Ses verisi çözülemedi. Dosya çok büyük olabilir: ${e}`);
+    }
 
     // Convert thresholdDb to linear amplitude
     const thresholdLinear = Math.pow(10, thresholdDb / 20);
