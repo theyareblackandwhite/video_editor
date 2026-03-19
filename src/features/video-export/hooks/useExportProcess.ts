@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Command } from '@tauri-apps/plugin-shell';
+import { Command, Child } from '@tauri-apps/plugin-shell';
 import { save } from '@tauri-apps/plugin-dialog';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import type { ExportConfig } from '../utils/ffmpegUtils';
@@ -30,6 +30,8 @@ export function useExportProcess({
     const [elapsedTime, setElapsedTime] = useState(0);
 
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const childProcessRef = useRef<Child | null>(null);
+    const lastErrorMessageRef = useRef<string>('');
 
     useEffect(() => {
         if (phase === 'processing') {
@@ -37,11 +39,19 @@ export function useExportProcess({
         } else {
             if (timerRef.current) clearInterval(timerRef.current);
         }
-        return () => { if (timerRef.current) clearInterval(timerRef.current); };
+        return () => { 
+            if (timerRef.current) clearInterval(timerRef.current);
+            // Cleanup: Kill process if unmounting during processing
+            if (childProcessRef.current) {
+                childProcessRef.current.kill().catch(err => console.error('Failed to kill process on unmount:', err));
+            }
+        };
     }, [phase]);
 
     const handleExport = useCallback(async () => {
         if (!masterVideo) return;
+
+        let fakeProgressInterval: ReturnType<typeof setInterval> | null = null;
 
         try {
             // 1. Pick where to save native file
@@ -64,6 +74,7 @@ export function useExportProcess({
             setElapsedTime(0);
             setProgressLabel('Video analiz ediliyor...');
             setOutputPath(selectedPath);
+            lastErrorMessageRef.current = '';
 
             // 2. Get accurate duration quickly
             const tempVideo = document.createElement('video');
@@ -85,8 +96,6 @@ export function useExportProcess({
 
             cmd.stderr.on('data', (line: string) => {
                 // Parse FFmpeg output
-                // Example: time=00:00:05.12
-                // Sometimes time can be negative or weird: time=-577014:32:22.77
                 const match = line.match(/time=\s*(\d+):(\d+):(\d+\.\d+)/);
                 if (match) {
                     hasSeenTime = true;
@@ -95,36 +104,49 @@ export function useExportProcess({
                     const s = parseFloat(match[3]);
                     const timeInSeconds = h * 3600 + m * 60 + s;
                     setProgress(Math.max(0, Math.min(1, timeInSeconds / duration)));
-                } else if (line.toLowerCase().includes('error')) {
-                    console.warn('FFmpeg stderr error:', line);
+                } 
+                
+                // Capture error messages
+                if (line.toLowerCase().includes('error') || line.toLowerCase().includes('failed') || line.toLowerCase().includes('invalid')) {
+                    lastErrorMessageRef.current = line.trim();
+                    console.warn('FFmpeg error detected:', line);
                 }
             });
 
-            // Start a safety timeout: if progress is fast (passthrough) or doesn't log time properly,
-            // we at least show fake progress or just wait for close.
-            // Stream copy runs too fast to reliably stream stderr sometimes.
-            const fakeProgressInterval = setInterval(() => {
+            // Start a safety timeout: if progress is fast (passthrough) or doesn't log time properly
+            fakeProgressInterval = setInterval(() => {
                 if (!hasSeenTime) {
-                   setProgress(p => Math.min(0.9, p + 0.1));
+                   setProgress(p => {
+                       const next = p + 0.1;
+                       if (next >= 0.9) {
+                           // If we hit 90% with fake progress, it might be stuck
+                           // According to user request: kill the process if it hits 90% fake progress and hangs
+                           console.warn('Process seems stuck at 90% (fake progress). Killing...');
+                           childProcessRef.current?.kill().catch(console.error);
+                           return 0.9;
+                       }
+                       return next;
+                   });
                 }
             }, 500);
 
             // Wait for command to close
-            let resultCode: number;
-            try {
-                resultCode = await new Promise<number>((resolve, reject) => {
-                    cmd.on('close', (data) => resolve(data.code ?? -1));
-                    cmd.on('error', (err) => reject(new Error(`Command failure: ${err}`)));
-
-                    // Actually start the process
-                    cmd.spawn().catch(reject);
+            const resultCode = await new Promise<number>((resolve, reject) => {
+                cmd.on('close', (data) => resolve(data.code ?? -1));
+                cmd.on('error', (err) => {
+                    lastErrorMessageRef.current = `Command error: ${err}`;
+                    reject(new Error(`Command failure: ${err}`));
                 });
-            } finally {
-                clearInterval(fakeProgressInterval);
-            }
+
+                // Actually start the process
+                cmd.spawn().then(child => {
+                    childProcessRef.current = child;
+                }).catch(reject);
+            });
 
             if (resultCode !== 0) {
-                throw new Error(`FFmpeg error (code ${resultCode}). Lütfen konsolu kontrol edin.`);
+                const errorDetail = lastErrorMessageRef.current || `Exit code ${resultCode}`;
+                throw new Error(`FFmpeg hatası: ${errorDetail}`);
             }
 
             setProgress(1);
@@ -134,13 +156,20 @@ export function useExportProcess({
         } catch (e) {
             console.error('Export failed:', e);
             setPhase('config');
-            alert(`Dışa aktarım başarısız oldu: ${e instanceof Error ? e.message : String(e)}`);
+            const message = e instanceof Error ? e.message : String(e);
+            alert(`Dışa aktarım başarısız oldu:\n\n${message}`);
+        } finally {
+            if (fakeProgressInterval) clearInterval(fakeProgressInterval);
+            childProcessRef.current = null;
         }
     }, [videoFiles, audioFiles, masterVideo, config, cuts]);
 
     const handleReset = useCallback(() => {
         setPhase('config');
         setOutputPath('');
+        setProgress(0);
+        setElapsedTime(0);
+        lastErrorMessageRef.current = '';
     }, []);
 
     return {
