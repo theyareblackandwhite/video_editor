@@ -40,9 +40,10 @@ export const CutToolbar: React.FC<CutToolbarProps> = ({
                 alert(`Belirtilen ayarlara uygun sessiz bölüm bulunamadı.`);
             }
             setShowAutoCutSettings(false);
-        } catch (e) {
-            console.error('Silence detection failed:', e);
-            alert("Sessizlik algılama başarısız oldu. Dosya çok büyük olabilir veya tarayıcı desteklemiyor olabilir.");
+        } catch (e: unknown) {
+            const err = e instanceof Error ? e : new Error(String(e));
+            console.error('Silence detection failed:', err);
+            alert(`Sessizlik algılama başarısız oldu: ${err.message}`);
         } finally {
             setIsDetectingSilences(false);
         }
@@ -50,24 +51,40 @@ export const CutToolbar: React.FC<CutToolbarProps> = ({
 
     return (
         <div className="flex items-center justify-between mb-4">
-            <div className="relative">
-                <button
-                    onClick={() => setShowAutoCutSettings(!showAutoCutSettings)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 transition-colors"
-                >
-                    <AudioLines size={16} />
-                    Otomatik Sessizlik Kes
-                </button>
+            <div className="flex items-center gap-2">
+                <div className="relative">
+                    <button
+                        onClick={() => setShowAutoCutSettings(!showAutoCutSettings)}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 transition-colors"
+                    >
+                        <AudioLines size={16} />
+                        Otomatik Sessizlik Kes
+                    </button>
 
-                {showAutoCutSettings && (
-                    <AutoCutSettingsPopover
-                        silenceThreshold={silenceThreshold}
-                        setSilenceThreshold={setSilenceThreshold}
-                        silenceDuration={silenceDuration}
-                        setSilenceDuration={setSilenceDuration}
-                        isDetectingSilences={isDetectingSilences}
-                        onDetect={handleDetectSilences}
-                    />
+                    {showAutoCutSettings && (
+                        <AutoCutSettingsPopover
+                            silenceThreshold={silenceThreshold}
+                            setSilenceThreshold={setSilenceThreshold}
+                            silenceDuration={silenceDuration}
+                            setSilenceDuration={setSilenceDuration}
+                            isDetectingSilences={isDetectingSilences}
+                            onDetect={handleDetectSilences}
+                        />
+                    )}
+                </div>
+
+                {cuts.length > 0 && (
+                    <button
+                        onClick={() => {
+                            if (window.confirm('Tüm kesimleri silmek istediğinize emin misiniz?')) {
+                                setCuts([]);
+                            }
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors"
+                    >
+                        <Trash2 size={16} />
+                        Hepsini Kaldır
+                    </button>
                 )}
             </div>
 

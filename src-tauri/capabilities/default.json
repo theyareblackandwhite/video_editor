@@ -24,6 +24,11 @@
           "name": "ffmpeg",
           "cmd": "ffmpeg",
           "args": true
+        },
+        {
+          "name": "ffmpeg-brew",
+          "cmd": "/opt/homebrew/bin/ffmpeg",
+          "args": true
         }
       ]
     },
@@ -33,6 +38,11 @@
         {
           "name": "ffmpeg",
           "cmd": "ffmpeg",
+          "args": true
+        },
+        {
+          "name": "ffmpeg-brew",
+          "cmd": "/opt/homebrew/bin/ffmpeg",
           "args": true
         }
       ]
