@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatTime } from '../time';
+import { formatTime } from '../index';
 
 describe('formatTime', () => {
     it('formats 0 seconds as "0:00"', () => {

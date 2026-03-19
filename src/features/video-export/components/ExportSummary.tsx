@@ -2,6 +2,7 @@ import React from 'react';
 import { HardDrive, Download } from 'lucide-react';
 import type { ExportConfig } from '../utils/ffmpegUtils';
 import type { MediaFile } from '../../../app/store/types';
+import { formatFileSize } from '../../../shared/utils';
 
 const QUALITY_LABELS: Record<ExportConfig['quality'], { label: string }> = {
     high: { label: 'Yüksek Kalite' },
@@ -14,10 +15,6 @@ const FORMAT_LABELS: Record<ExportConfig['format'], { label: string }> = {
     webm: { label: 'WebM (VP9)' },
 };
 
-const fmtSize = (bytes: number) => {
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
 
 interface Props {
     config: ExportConfig;
@@ -86,7 +83,7 @@ export const ExportSummary: React.FC<Props> = ({
                     <div className="flex items-center gap-2 text-sm">
                         <HardDrive size={14} className="text-gray-400" />
                         <span className="text-gray-500">Tahmini boyut:</span>
-                        <span className="font-semibold text-gray-800">{fmtSize(estimatedSize)}</span>
+                        <span className="font-semibold text-gray-800">{formatFileSize(estimatedSize)}</span>
                     </div>
                 </div>
 

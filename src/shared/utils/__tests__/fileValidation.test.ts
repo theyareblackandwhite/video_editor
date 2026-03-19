@@ -7,7 +7,7 @@ import {
     FILE_SIZE_LIMITS,
     MEMORY_MULTIPLIER,
     MAX_DECODE_DURATION_S,
-} from '../fileValidation';
+} from '../index';
 
 /* ── formatFileSize ── */
 
@@ -25,7 +25,7 @@ describe('formatFileSize', () => {
     });
 
     it('formats 0 bytes', () => {
-        expect(formatFileSize(0)).toBe('0 KB');
+        expect(formatFileSize(0)).toBe('0 B');
     });
 
     it('formats exactly 1 GB', () => {

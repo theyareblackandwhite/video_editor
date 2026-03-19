@@ -1,3 +1,5 @@
+import { formatFileSize } from './format';
+
 /**
  * File size validation and memory estimation utilities.
  *
@@ -25,20 +27,7 @@ export const MAX_DECODE_DURATION_S = 180; // 3 minutes as requested
 /* ── Helpers ── */
 
 const MB = 1024 * 1024;
-const GB = 1024 * MB;
 
-/**
- * Format bytes into a human-readable string (KB / MB / GB).
- */
-export function formatFileSize(bytes: number): string {
-    if (bytes < MB) {
-        return `${(bytes / 1024).toFixed(0)} KB`;
-    }
-    if (bytes < GB) {
-        return `${(bytes / MB).toFixed(1)} MB`;
-    }
-    return `${(bytes / GB).toFixed(2)} GB`;
-}
 
 /* ── Validation ── */
 

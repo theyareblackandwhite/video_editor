@@ -12,7 +12,7 @@ async function extractAudioWav(
     maxDuration?: number
 ): Promise<string> {
     const dataDir = await appDataDir();
-    const outPath = await join(dataDir, `temp_audio_${Date.now()}_${Math.random().toString(36).substring(7)}.wav`);
+    const outPath = await join(dataDir, `temp_audio_${Date.now()}_${crypto.randomUUID()}.wav`);
 
     const args = ['-i', sourcePath];
     if (maxDuration) {
@@ -102,7 +102,7 @@ export async function detectSilences(
                 const silenceSamples = i - silenceStartSample;
                 if (silenceSamples >= minSamples) {
                     cuts.push({
-                        id: `auto-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+                        id: `auto-${Date.now()}-${crypto.randomUUID()}`,
                         start: silenceStartSample / sampleRate,
                         end: i / sampleRate
                     });
@@ -117,7 +117,7 @@ export async function detectSilences(
         const silenceSamples = samples.length - silenceStartSample;
         if (silenceSamples >= minSamples) {
             cuts.push({
-                id: `auto-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+                id: `auto-${Date.now()}-${crypto.randomUUID()}`,
                 start: silenceStartSample / sampleRate,
                 end: samples.length / sampleRate
             });

@@ -70,7 +70,7 @@ export const useAppStore = create<AppState>()(
             setStep: (step) => set({ currentStep: step }),
 
             addVideoFile: (file) => set((state) => {
-                const id = Math.random().toString(36).substring(7);
+                const id = crypto.randomUUID();
                 const newFiles = [...state.videoFiles, { id, file, syncOffset: 0, isMaster: state.videoFiles.length === 0 }];
                 return { videoFiles: newFiles };
             }),
@@ -93,7 +93,7 @@ export const useAppStore = create<AppState>()(
             })),
 
             addAudioFile: (file) => set((state) => {
-                const id = Math.random().toString(36).substring(7);
+                const id = crypto.randomUUID();
                 return { audioFiles: [...state.audioFiles, { id, file, syncOffset: 0 }] };
             }),
 

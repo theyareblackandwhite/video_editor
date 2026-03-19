@@ -1,10 +1,9 @@
 export { cn } from './cn';
-export { formatTime } from './time';
+export { formatTime, formatFileSize } from './format';
 export {
     validateFileSize,
     estimateMemoryUsageMB,
     estimateSyncMemoryMB,
-    formatFileSize,
     FILE_SIZE_LIMITS,
     MEMORY_MULTIPLIER,
     MAX_DECODE_DURATION_S,
