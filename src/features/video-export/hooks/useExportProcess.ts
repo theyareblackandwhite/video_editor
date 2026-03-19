@@ -77,7 +77,6 @@ export function useExportProcess({
 
             // 3. Build command and execute
             const args = buildFFmpegCommand(config, cuts, duration, videoFiles, audioFiles, masterVideo.id, selectedPath);
-            console.log('Tauri FFmpeg Command:', args.join(' '));
 
             const cmd = Command.create('ffmpeg', args);
             

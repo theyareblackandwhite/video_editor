@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import { useAppStore } from '../../../app/store';
 import { fmtTime } from '../utils/timeFormat';
 
@@ -19,9 +19,9 @@ export const TimelineEdit: React.FC = () => {
     const { videoFiles, audioFiles, cuts, setCuts, layoutMode, setLayoutMode, setStep } = useAppStore();
 
     /* ── derived state ── */
-    const masterVideo = videoFiles.find(v => v.isMaster) || videoFiles[0];
-    const otherVideos = videoFiles.filter(v => v.id !== masterVideo?.id);
-    const allAudioFiles = audioFiles;
+    const masterVideo = useMemo(() => videoFiles.find(v => v.isMaster) || videoFiles[0], [videoFiles]);
+    const otherVideos = useMemo(() => videoFiles.filter(v => v.id !== masterVideo?.id), [videoFiles, masterVideo]);
+    const allAudioFiles = useMemo(() => audioFiles, [audioFiles]);
 
     /* ── refs ── */
     const masterVideoRef = useRef<HTMLVideoElement>(null);
