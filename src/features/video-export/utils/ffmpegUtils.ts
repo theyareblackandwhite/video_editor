@@ -234,34 +234,40 @@ const applyTrimmingAndTransitions = (
         segmentsToConcat.push(`[${aLabel}]`);
     });
 
-    const outV = 'v_out';
-    const outARaw = 'a_pre_norm';
+    let outV = 'v_out';
+    let outA = 'a_pre_norm';
 
-    if (config.transitionType === 'crossfade' && n > 1) {
-        const transitionDuration = 1.0;
-        let currentVideoOutput = `[v_seg_0]`;
-        let currentAudioOutput = `[a_seg_0]`;
-        let accumulatedDuration = segments[0].end - segments[0].start;
+    if (n > 1) {
+        if (config.transitionType === 'crossfade') {
+            const transitionDuration = 1.0;
+            let currentVideoOutput = `[v_seg_0]`;
+            let currentAudioOutput = `[a_seg_0]`;
+            let accumulatedDuration = segments[0].end - segments[0].start;
 
-        for (let i = 1; i < n; i++) {
-            const segDuration = segments[i].end - segments[i].start;
-            const offset = accumulatedDuration - transitionDuration;
-            const nextVideoOut = i === n - 1 ? `[${outV}]` : `[v_xfade_${i}]`;
-            const nextAudioOut = i === n - 1 ? `[${outARaw}]` : `[a_xfade_${i}]`;
-            const offsetStr = Math.max(0, offset).toFixed(3);
+            for (let i = 1; i < n; i++) {
+                const segDuration = segments[i].end - segments[i].start;
+                const offset = accumulatedDuration - transitionDuration;
+                const nextVideoOut = i === n - 1 ? `[${outV}]` : `[v_xfade_${i}]`;
+                const nextAudioOut = i === n - 1 ? `[${outA}]` : `[a_xfade_${i}]`;
+                const offsetStr = Math.max(0, offset).toFixed(3);
 
-            filterComplex.push(`${currentVideoOutput}[v_seg_${i}]xfade=transition=fade:duration=${transitionDuration}:offset=${offsetStr}${nextVideoOut}`);
-            filterComplex.push(`${currentAudioOutput}[a_seg_${i}]acrossfade=d=${transitionDuration}${nextAudioOut}`);
+                filterComplex.push(`${currentVideoOutput}[v_seg_${i}]xfade=transition=fade:duration=${transitionDuration}:offset=${offsetStr}${nextVideoOut}`);
+                filterComplex.push(`${currentAudioOutput}[a_seg_${i}]acrossfade=d=${transitionDuration}${nextAudioOut}`);
 
-            currentVideoOutput = nextVideoOut;
-            currentAudioOutput = nextAudioOut;
-            accumulatedDuration += segDuration - transitionDuration;
+                currentVideoOutput = nextVideoOut;
+                currentAudioOutput = nextAudioOut;
+                accumulatedDuration += segDuration - transitionDuration;
+            }
+        } else {
+            filterComplex.push(`${segmentsToConcat.join('')}concat=n=${n}:v=1:a=1[${outV}][${outA}]`);
         }
     } else {
-        filterComplex.push(`${segmentsToConcat.join('')}concat=n=${n}:v=1:a=1[${outV}][${outARaw}]`);
+        // Only 1 segment, no need for concat or xfade
+        outV = 'v_seg_0';
+        outA = 'a_seg_0';
     }
 
-    return { outV, outA: outARaw };
+    return { outV, outA };
 };
 
 /**

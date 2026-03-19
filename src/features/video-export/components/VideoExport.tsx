@@ -19,7 +19,7 @@ export const VideoExport: React.FC = () => {
         quality: 'high',
         includeAudio: audioFiles.length > 0,
         applyCuts: cuts.length > 0,
-        normalizeAudio: true,
+        normalizeAudio: false,
         layoutMode,
         transitionType
     });
