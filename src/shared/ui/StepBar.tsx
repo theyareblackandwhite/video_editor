@@ -33,7 +33,7 @@ export const StepBar: React.FC<StepBarProps> = ({ hideLogo }) => {
                     {/* Steps container */}
                     <div className="flex-1 relative">
                         {/* Track + Progress lines — inset to align with dot centers */}
-                        <div className="absolute top-5 left-5 right-5">
+                        <div className="absolute top-4 left-4 right-4">
                             {/* Background track */}
                             <div className="absolute inset-0 h-[3px] bg-gray-200 rounded-full" />
                             {/* Animated progress fill */}
@@ -57,9 +57,9 @@ export const StepBar: React.FC<StepBarProps> = ({ hideLogo }) => {
                                             ${isActive ? 'scale-110' : 'hover:scale-105'}`}
                                         style={{ outline: 'none' }}
                                     >
-                                        {/* Circle — w-10 h-10 = 40px, so center is at 20px = top-5/left-5 */}
+                                        {/* Circle — w-8 h-8 = 32px, so center is at 16px = top-4/left-4 */}
                                         <div
-                                            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-500 ease-out
+                                            className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-500 ease-out
                                                 ${isActive
                                                     ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/30 ring-4 ring-blue-100'
                                                     : isCompleted
@@ -68,9 +68,9 @@ export const StepBar: React.FC<StepBarProps> = ({ hideLogo }) => {
                                                 }`}
                                         >
                                             {isCompleted ? (
-                                                <Check size={18} strokeWidth={3} />
+                                                <Check size={16} strokeWidth={3} />
                                             ) : (
-                                                <Icon size={18} />
+                                                <Icon size={16} />
                                             )}
                                         </div>
 
