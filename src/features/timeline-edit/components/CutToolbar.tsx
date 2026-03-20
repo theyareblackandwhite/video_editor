@@ -54,15 +54,15 @@ export const CutToolbar: React.FC<CutToolbarProps> = ({
     };
 
     return (
-        <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-                <div className="relative">
+        <div className="flex flex-col gap-4 w-full">
+            <div className="flex flex-col gap-2 w-full">
+                <div className="relative w-full">
                     <button
                         onClick={() => setShowAutoCutSettings(!showAutoCutSettings)}
-                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 transition-colors"
+                        className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-xl text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 transition-colors"
                     >
-                        <AudioLines size={16} />
-                        Otomatik Sessizlik Kes
+                        <AudioLines size={14} />
+                        Otomatik Kes
                     </button>
 
                     {showAutoCutSettings && (
@@ -84,34 +84,35 @@ export const CutToolbar: React.FC<CutToolbarProps> = ({
                                 setCuts([]);
                             }
                         }}
-                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors"
+                        className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-xl text-xs font-semibold bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors"
                     >
-                        <Trash2 size={16} />
-                        Hepsini Kaldır
+                        <Trash2 size={14} />
+                        Sıfırla
                     </button>
                 )}
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col gap-2 w-full border-t border-gray-100 pt-3">
                 <button
                     onClick={handleMarkIn}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${markIn !== null ? 'bg-red-100 text-red-700 border border-red-300' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                    className={`flex items-center justify-center gap-2 w-full px-3 py-2 rounded-xl text-xs font-semibold transition-all ${markIn !== null ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
                 >
-                    {markIn !== null ? <Trash2 size={16} /> : <Plus size={16} />}
-                    {markIn !== null ? `Kaldır: ${fmtTime(markIn)}` : 'Başlangıç İşaretle'}
+                    {markIn !== null ? <Trash2 size={14} /> : <Plus size={14} />}
+                    {markIn !== null ? `İptal: ${fmtTime(markIn)}` : 'Başlangıç'}
                 </button>
                 <button
                     onClick={handleCutOut}
                     disabled={markIn === null}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-red-600 text-white
-                        hover:bg-red-700 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-md shadow-red-600/20"
+                    className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-xl text-xs font-bold bg-red-600 text-white
+                        hover:bg-red-700 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-sm shadow-red-600/20"
                 >
-                    <Scissors size={16} />
+                    <Scissors size={14} />
                     Kes
                 </button>
             </div>
         </div>
     );
+
 };
 
 /* ── Auto Cut Settings Popover ── */

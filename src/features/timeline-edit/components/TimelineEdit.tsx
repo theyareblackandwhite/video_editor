@@ -10,7 +10,7 @@ import { useCutDrag } from '../hooks/useCutDrag';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 import { VideoPreview } from './VideoPreview';
-import { TransportControls } from './TransportControls';
+import { TransportControls, ShortcutHints } from './TransportControls';
 import { CutToolbar } from './CutToolbar';
 import { WaveformTimeline } from './WaveformTimeline';
 import { CutListSidebar } from './CutListSidebar';
@@ -96,12 +96,73 @@ export const TimelineEdit: React.FC = () => {
 
     /* ── render ── */
     return (
-        <div className="max-w-full mx-auto px-4">
+        <div className="w-full pl-64 pr-8 py-8">
+            {/* ── Main Layout (Relative container for absolute sidebar) ── */}
+            <div className="relative">
 
-            {/* ── Main Layout (Vertical) ── */}
-            <div className="flex flex-col gap-6">
-                {/* ── Top Section: Preview & Controls ── */}
-                <div className="w-full">
+                {/* ── Left Sidebar: Controls (Absolute) ── */}
+                <div className="absolute right-full mr-8 top-0 w-48 shrink-0 flex flex-col gap-4 hidden xl:flex">
+                    <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-4 sticky top-6">
+                        <TransportControls
+                            isPlaying={isPlaying}
+                            togglePlay={togglePlay}
+                            skip={skip}
+                            layoutMode={layoutMode}
+                            setLayoutMode={setLayoutMode}
+                            hasMultipleVideos={videoFiles.length > 1}
+                        />
+
+                        <div className="my-4 border-t border-gray-100" />
+
+                        <CutToolbar
+                            markIn={markIn}
+                            handleMarkIn={handleMarkIn}
+                            handleCutOut={handleCutOut}
+                            masterVideo={masterVideo}
+                            videoFiles={videoFiles}
+                            audioFiles={audioFiles}
+                            cuts={cuts}
+                            setCuts={setCuts}
+                            fmtTime={fmtTime}
+                            currentTime={currentTime}
+                        />
+
+                        <div className="mt-8 pt-4 border-t border-gray-50 opacity-60">
+                            <ShortcutHints />
+                        </div>
+                    </div>
+                </div>
+
+                {/* ── Right Content: Preview & Timeline (Full Width) ── */}
+                <div className="w-full flex flex-col gap-6">
+                    {/* Fallback for smaller screens where absolute sidebar might overflow */}
+                    <div className="xl:hidden bg-white rounded-2xl shadow-md border border-gray-100 p-4 mb-6">
+                         <div className="flex flex-col gap-4">
+                            <TransportControls
+                                isPlaying={isPlaying}
+                                togglePlay={togglePlay}
+                                skip={skip}
+                                layoutMode={layoutMode}
+                                setLayoutMode={setLayoutMode}
+                                hasMultipleVideos={videoFiles.length > 1}
+                            />
+                            <div className="border-t border-gray-100 my-2" />
+                            <CutToolbar
+                                markIn={markIn}
+                                handleMarkIn={handleMarkIn}
+                                handleCutOut={handleCutOut}
+                                masterVideo={masterVideo}
+                                videoFiles={videoFiles}
+                                audioFiles={audioFiles}
+                                cuts={cuts}
+                                setCuts={setCuts}
+                                fmtTime={fmtTime}
+                                currentTime={currentTime}
+                            />
+                         </div>
+                    </div>
+
+
                     <VideoPreview
                         masterVideo={masterVideo}
                         otherVideos={otherVideos}
@@ -121,29 +182,7 @@ export const TimelineEdit: React.FC = () => {
                         updateVideoTransform={updateVideoTransform}
                     />
 
-                    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mt-6">
-                        <TransportControls
-                            isPlaying={isPlaying}
-                            togglePlay={togglePlay}
-                            skip={skip}
-                            layoutMode={layoutMode}
-                            setLayoutMode={setLayoutMode}
-                            hasMultipleVideos={videoFiles.length > 1}
-                        />
-
-                        <CutToolbar
-                            markIn={markIn}
-                            handleMarkIn={handleMarkIn}
-                            handleCutOut={handleCutOut}
-                            masterVideo={masterVideo}
-                            videoFiles={videoFiles}
-                            audioFiles={audioFiles}
-                            cuts={cuts}
-                            setCuts={setCuts}
-                            fmtTime={fmtTime}
-                            currentTime={currentTime}
-                        />
-
+                    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
                         <WaveformTimeline
                             waveContainerRef={waveContainerRef}
                             zoom={zoom}
@@ -160,9 +199,12 @@ export const TimelineEdit: React.FC = () => {
                         />
                     </div>
                 </div>
+            </div>
+
+
 
                 {/* ── Bottom Section: Cut List ── */}
-                <div className="w-full">
+                <div className="w-full mt-6">
                     <CutListSidebar
                         sortedCuts={sortedCuts}
                         cuts={cuts}
@@ -174,6 +216,7 @@ export const TimelineEdit: React.FC = () => {
                     />
                 </div>
             </div>
-        </div>
     );
 };
+
+
