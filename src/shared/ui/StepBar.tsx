@@ -9,7 +9,11 @@ const STEPS = [
     { num: 4, label: 'Dışa Aktar', icon: Download },
 ];
 
-export const StepBar: React.FC = () => {
+interface StepBarProps {
+    hideLogo?: boolean;
+}
+
+export const StepBar: React.FC<StepBarProps> = ({ hideLogo }) => {
     const { currentStep, setStep } = useAppStore();
 
     // Progress percentage based on completed steps
@@ -17,12 +21,14 @@ export const StepBar: React.FC = () => {
 
     return (
         <div className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-[100]">
-            <div className="max-w-3xl mx-auto px-6 py-4">
+            <div className="max-w-3xl mx-auto px-6 py-2">
                 {/* Logo + Steps row */}
                 <div className="flex items-center gap-8">
-                    <h1 className="text-lg font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent whitespace-nowrap select-none">
-                        PodCut
-                    </h1>
+                    {!hideLogo && (
+                        <h1 className="text-lg font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent whitespace-nowrap select-none">
+                            PodCut
+                        </h1>
+                    )}
 
                     {/* Steps container */}
                     <div className="flex-1 relative">

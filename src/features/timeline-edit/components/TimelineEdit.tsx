@@ -96,34 +96,34 @@ export const TimelineEdit: React.FC = () => {
 
     /* ── render ── */
     return (
-        <div className="max-w-6xl mx-auto py-8 px-4">
+        <div className="max-w-full mx-auto py-4 px-4">
             {/* Header */}
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
                 <div>
-                    <h2 className="text-2xl font-bold text-gray-900">Düzenle & Kes</h2>
+                    <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Düzenle & Kes</h2>
                     <p className="text-sm text-gray-500">Kesim noktalarını belirleyerek videoyu düzenleyin.</p>
                 </div>
                 <div className="flex gap-3">
                     <button
                         onClick={() => setStep(2)}
-                        className="px-4 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium"
+                        className="px-5 py-2.5 bg-gray-50 text-gray-600 rounded-xl hover:bg-gray-100 transition-all font-semibold border border-gray-200"
                     >
-                        Geri
+                        ← Geri
                     </button>
                     <button
                         onClick={() => setStep(4)}
-                        className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl
-                            hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
+                        className="px-8 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-xl
+                            hover:from-blue-700 hover:to-indigo-700 shadow-xl shadow-blue-600/20 active:scale-[0.98] transition-all"
                     >
                         Dışa Aktar →
                     </button>
                 </div>
             </div>
 
-            {/* ── Main Layout ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* ── Left Column ── */}
-                <div className="lg:col-span-2">
+            {/* ── Main Layout (Vertical) ── */}
+            <div className="flex flex-col gap-6">
+                {/* ── Top Section: Preview & Controls ── */}
+                <div className="w-full">
                     <VideoPreview
                         masterVideo={masterVideo}
                         otherVideos={otherVideos}
@@ -144,7 +144,7 @@ export const TimelineEdit: React.FC = () => {
                         updateVideoTransform={updateVideoTransform}
                     />
 
-                    <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-4">
+                    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mt-6">
                         <TransportControls
                             isPlaying={isPlaying}
                             togglePlay={togglePlay}
@@ -181,8 +181,8 @@ export const TimelineEdit: React.FC = () => {
                     </div>
                 </div>
 
-                {/* ── Right Sidebar ── */}
-                <div className="lg:col-span-1">
+                {/* ── Bottom Section: Cut List ── */}
+                <div className="w-full">
                     <CutListSidebar
                         sortedCuts={sortedCuts}
                         cuts={cuts}

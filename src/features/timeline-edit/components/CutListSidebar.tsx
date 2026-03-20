@@ -23,22 +23,46 @@ export const CutListSidebar: React.FC<CutListSidebarProps> = ({
     nudgeCutEdge,
 }) => {
     return (
-        <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-5 sticky top-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-1">Kesim Listesi</h3>
-            <p className="text-xs text-gray-400 mb-4">
-                Çıkarılacak bölümler aşağıda listelenir. Kırmızı bölgeler son videoda olmayacaktır.
-            </p>
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
+            <div className="flex items-center justify-between mb-4">
+                <div>
+                    <h3 className="text-xl font-bold text-gray-900">Kesim Listesi</h3>
+                    <p className="text-sm text-gray-500">
+                        Çıkarılacak bölümler aşağıda listelenir. Kırmızı bölgeler son videoda olmayacaktır.
+                    </p>
+                </div>
+                {sortedCuts.length > 0 && (
+                    <div className="flex gap-6 bg-gray-50 px-4 py-2 rounded-xl border border-gray-100">
+                        <div className="flex flex-col items-center">
+                            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Kesimler</span>
+                            <span className="text-sm font-bold text-gray-800">{sortedCuts.length}</span>
+                        </div>
+                        <div className="flex flex-col items-center border-l border-gray-200 pl-6">
+                            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Çıkarılan</span>
+                            <span className="text-sm font-bold text-red-600">
+                                {cuts.reduce((s, c) => s + (c.end - c.start), 0).toFixed(1)}s
+                            </span>
+                        </div>
+                        <div className="flex flex-col items-center border-l border-gray-200 pl-6">
+                            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Kalan</span>
+                            <span className="text-sm font-bold text-green-600">
+                                {(duration - cuts.reduce((s, c) => s + (c.end - c.start), 0)).toFixed(1)}s
+                            </span>
+                        </div>
+                    </div>
+                )}
+            </div>
 
             {sortedCuts.length === 0 ? (
-                <div className="text-center py-10">
-                    <Scissors size={32} className="mx-auto text-gray-300 mb-3" />
-                    <p className="text-sm text-gray-400">Henüz kesim yok</p>
-                    <p className="text-xs text-gray-300 mt-1">
-                        Başlangıç noktası belirleyip, bitiş noktasında "Kes" butonuna basın.
+                <div className="text-center py-12 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                    <Scissors size={40} className="mx-auto text-gray-300 mb-3" />
+                    <p className="text-lg font-medium text-gray-500">Henüz kesim noktası yok</p>
+                    <p className="text-sm text-gray-400 mt-1 max-w-sm mx-auto">
+                        Başlangıç noktası belirleyip, bitiş noktasında "Kes" butonuna basarak videodan bölüm çıkarabilirsiniz.
                     </p>
                 </div>
             ) : (
-                <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
                     {sortedCuts.map((cut, i) => (
                         <CutListItem
                             key={cut.id}
@@ -50,28 +74,6 @@ export const CutListSidebar: React.FC<CutListSidebarProps> = ({
                             onNudge={(edge, delta) => nudgeCutEdge(cut.id, edge, delta)}
                         />
                     ))}
-                </div>
-            )}
-
-            {/* Summary */}
-            {sortedCuts.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-gray-100">
-                    <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Toplam kesim</span>
-                        <span className="font-semibold text-gray-800">{sortedCuts.length} bölüm</span>
-                    </div>
-                    <div className="flex justify-between text-sm mt-1">
-                        <span className="text-gray-500">Çıkarılan süre</span>
-                        <span className="font-mono font-semibold text-red-600">
-                            {cuts.reduce((s, c) => s + (c.end - c.start), 0).toFixed(1)}s
-                        </span>
-                    </div>
-                    <div className="flex justify-between text-sm mt-1">
-                        <span className="text-gray-500">Kalan süre</span>
-                        <span className="font-mono font-semibold text-green-600">
-                            {(duration - cuts.reduce((s, c) => s + (c.end - c.start), 0)).toFixed(1)}s
-                        </span>
-                    </div>
                 </div>
             )}
         </div>

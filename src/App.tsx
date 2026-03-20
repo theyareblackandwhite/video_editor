@@ -6,6 +6,7 @@ import { VideoExport } from './features/video-export';
 import { useAppStore } from './app/store';
 import { ErrorBoundary, ProjectSidebar } from './shared/ui';
 import { StepBar } from './shared/ui';
+import { Menu } from 'lucide-react';
 
 const StepComponents: Record<number, React.FC> = {
   1: MediaUpload,
@@ -23,6 +24,7 @@ function App() {
   const [displayedStep, setDisplayedStep] = useState(currentStep);
   const [direction, setDirection] = useState<'left' | 'right'>('right');
   const [animating, setAnimating] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const prevStepRef = useRef(currentStep);
 
   useEffect(() => {
@@ -93,9 +95,21 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 flex h-screen overflow-hidden">
-      <ProjectSidebar />
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        <StepBar />
+      <ProjectSidebar isOpen={sidebarOpen} />
+      <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+        <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-[100] flex items-center px-4">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="p-2 mr-4 hover:bg-gray-100 rounded-lg text-gray-600 transition-all active:scale-95"
+            title={sidebarOpen ? "Menüyü Kapat" : "Menüyü Aç"}
+          >
+            <Menu size={24} />
+          </button>
+          <div className="flex-1">
+            <StepBar hideLogo />
+          </div>
+        </header>
+
         <main className="flex-1 overflow-y-auto p-4">
           <div className="max-w-7xl mx-auto">
             <div className={`transition-all duration-300 ease-out ${getTransformClass()}`}>
