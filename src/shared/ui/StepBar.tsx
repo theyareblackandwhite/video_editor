@@ -20,8 +20,8 @@ export const StepBar: React.FC<StepBarProps> = ({ hideLogo }) => {
     const progressPercent = ((currentStep - 1) / (STEPS.length - 1)) * 100;
 
     return (
-        <div className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-[100]">
-            <div className="max-w-3xl mx-auto px-6 py-2">
+        <div className="flex-1">
+            <div className="px-6 py-2">
                 {/* Logo + Steps row */}
                 <div className="flex items-center gap-8">
                     {!hideLogo && (

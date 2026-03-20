@@ -97,16 +97,82 @@ function App() {
     <div className="min-h-screen bg-gray-50 text-gray-900 flex h-screen overflow-hidden">
       <ProjectSidebar isOpen={sidebarOpen} />
       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
-        <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-[100] flex items-center px-4">
+        <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-[100] flex items-center px-4 h-16">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 mr-4 hover:bg-gray-100 rounded-lg text-gray-600 transition-all active:scale-95"
+            className="p-2 mr-4 hover:bg-gray-100 rounded-lg text-gray-600 transition-all active:scale-95 flex-shrink-0"
             title={sidebarOpen ? "Menüyü Kapat" : "Menüyü Aç"}
           >
             <Menu size={24} />
           </button>
-          <div className="flex-1">
+
+          {/* Dynamic Title based on Step */}
+          <div className="hidden lg:block mr-4 flex-shrink-0 animate-in fade-in slide-in-from-left-4 duration-500 min-w-[140px]">
+            {currentStep === 1 && (
+              <>
+                <h2 className="text-lg font-bold text-gray-900 leading-tight">Medya Yükle</h2>
+                <p className="text-[10px] text-gray-500 font-medium">Dosyalarınızı ekleyin</p>
+              </>
+            )}
+            {currentStep === 2 && (
+              <>
+                <h2 className="text-lg font-bold text-gray-900 leading-tight">Ses Senkronize</h2>
+                <p className="text-[10px] text-gray-500 font-medium">Kamera & Mikrofon eşleme</p>
+              </>
+            )}
+            {currentStep === 3 && (
+              <>
+                <h2 className="text-lg font-bold text-gray-900 leading-tight">Düzenle & Kes</h2>
+                <p className="text-[10px] text-gray-500 font-medium">Kesim noktalarınızı belirleyin</p>
+              </>
+            )}
+            {currentStep === 4 && (
+              <>
+                <h2 className="text-lg font-bold text-gray-900 leading-tight">Dışa Aktar</h2>
+                <p className="text-[10px] text-gray-500 font-medium">Videonuzu kaydedin</p>
+              </>
+            )}
+          </div>
+
+          <div className="flex-1 min-w-0">
             <StepBar hideLogo />
+          </div>
+
+          {/* Dynamic Actions based on Step */}
+          <div className="flex items-center gap-2 ml-4 flex-shrink-0 min-w-[120px] justify-end animate-in fade-in slide-in-from-right-4 duration-500">
+            {currentStep === 2 && (
+                <button
+                  onClick={() => useAppStore.getState().setStep(1)}
+                  className="px-4 py-2 bg-gray-50 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-all font-semibold border border-gray-200 hidden sm:block"
+                >
+                  ← Geri
+                </button>
+            )}
+            {currentStep === 3 && (
+              <>
+                <button
+                  onClick={() => useAppStore.getState().setStep(2)}
+                  className="px-4 py-2 bg-gray-50 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-all font-semibold border border-gray-200 hidden sm:block"
+                >
+                  ← Geri
+                </button>
+                <button
+                  onClick={() => useAppStore.getState().setStep(4)}
+                  className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-lg
+                    hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
+                >
+                  Dışa Aktar →
+                </button>
+              </>
+            )}
+            {currentStep === 4 && (
+              <button
+                onClick={() => useAppStore.getState().setStep(3)}
+                className="px-4 py-2 bg-gray-50 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-all font-semibold border border-gray-200"
+              >
+                ← Düzenle'ye Dön
+              </button>
+            )}
           </div>
         </header>
 

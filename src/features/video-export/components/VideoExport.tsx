@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
 import { useAppStore } from '../../../app/store';
 import type { ExportConfig } from '../utils/ffmpegUtils';
 import { useExportProcess } from '../hooks/useExportProcess';
@@ -10,7 +9,7 @@ import { ExportProcessing } from './ExportProcessing';
 import { ExportDone } from './ExportDone';
 
 export const VideoExport: React.FC = () => {
-    const { videoFiles, audioFiles, cuts, layoutMode, transitionType, setStep } = useAppStore();
+    const { videoFiles, audioFiles, cuts, layoutMode, transitionType } = useAppStore();
 
     const masterVideo = videoFiles.find(v => v.isMaster) || videoFiles[0];
 
@@ -45,21 +44,9 @@ export const VideoExport: React.FC = () => {
     });
 
     return (
-        <div className="max-w-4xl mx-auto py-8 px-4">
+        <div className="max-w-full mx-auto px-4">
             {phase === 'config' && (
                 <>
-                    <div className="flex items-center justify-between mb-8">
-                        <div>
-                            <h2 className="text-2xl font-bold text-gray-900">Dışa Aktar</h2>
-                            <p className="text-sm text-gray-500">Çıktı ayarlarını seçin ve videonuzu kaydedin.</p>
-                        </div>
-                        <button
-                            onClick={() => setStep(3)}
-                            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium"
-                        >
-                            <ArrowLeft size={16} /> Geri
-                        </button>
-                    </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         <ExportConfigPanel 

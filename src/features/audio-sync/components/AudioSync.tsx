@@ -167,7 +167,7 @@ export const AudioSync: React.FC = () => {
     };
 
     return (
-        <div className="max-w-3xl mx-auto py-12 px-4">
+        <div className="max-w-full mx-auto px-4">
             <audio ref={videoAudioRef} src={videoUrlRef.current} preload="auto" onTimeUpdate={(e) => {
                 if (e.currentTarget.currentTime >= MAX_DECODE_DURATION_S) {
                     e.currentTarget.pause();
@@ -176,13 +176,6 @@ export const AudioSync: React.FC = () => {
                 }
             }} />
             <audio ref={externalAudioRef} src={audioUrlRef.current} preload="auto" />
-
-            <div className="text-center mb-10">
-                <h2 className="text-3xl font-bold text-gray-900">Ses Senkronizasyonu</h2>
-                <p className="mt-2 text-gray-500">
-                    Kamera sesini harici mikrofon kaydıyla hizalayın.
-                </p>
-            </div>
 
             {targetFiles.length === 0 && <SyncPhaseNoTargets setStep={setStep} />}
 

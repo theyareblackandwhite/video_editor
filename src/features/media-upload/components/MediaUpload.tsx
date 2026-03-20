@@ -143,11 +143,7 @@ export const MediaUpload: React.FC = () => {
     const canProceed = videoFiles.length > 0;
 
     return (
-        <div className="max-w-5xl mx-auto py-12 px-4">
-            <div className="text-center mb-12">
-                <h2 className="text-3xl font-bold text-gray-900">Medya Dosyalarını Yükle</h2>
-                <p className="mt-2 text-gray-600">Birden fazla kamera kaydını ve harici mikrofon seslerini seçin.</p>
-            </div>
+        <div className="max-w-full mx-auto px-4 pt-6">
 
             <div className="grid md:grid-cols-2 gap-8 mb-12">
                 {/* Videos Section */}

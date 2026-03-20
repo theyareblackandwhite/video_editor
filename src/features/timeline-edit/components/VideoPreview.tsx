@@ -1,5 +1,4 @@
 import React, { useRef, useState } from 'react';
-import { LayoutTemplate } from 'lucide-react';
 import type { MediaFile, LayoutMode, VideoTransform } from '../../../app/store/types';
 
 interface VideoPreviewProps {
@@ -15,7 +14,6 @@ interface VideoPreviewProps {
     duration: number;
     setDuration: React.Dispatch<React.SetStateAction<number>>;
     setIsPlaying: React.Dispatch<React.SetStateAction<boolean>>;
-    setLayoutMode: (mode: LayoutMode) => void;
     currentTime: number;
     markIn: number | null;
     fmtTime: (s: number) => string;
@@ -35,7 +33,6 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
     duration,
     setDuration,
     setIsPlaying,
-    setLayoutMode,
     currentTime,
     markIn,
     fmtTime,
@@ -79,19 +76,41 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
         setDraggingId(null);
     };
 
-    const handleWheel = (e: React.WheelEvent, v: MediaFile) => {
+    const mainPreviewRef = useRef<HTMLDivElement>(null);
+
+    const handleWheelNative = (e: WheelEvent) => {
         if (layoutMode !== 'crop') return;
         
+        // Prevent page scroll
+        e.preventDefault();
+        
+        // Find which video was under the mouse
+        const target = e.target as HTMLElement;
+        const videoContainer = target.closest('[data-video-id]');
+        if (!videoContainer) return;
+        
+        const videoId = videoContainer.getAttribute('data-video-id');
+        const v = videoFiles.find(f => f.id === videoId);
+        if (!v) return;
+
         const transform = v.transform || { scale: 1, x: 0, y: 0 };
         const zoomStep = 0.05;
         const delta = e.deltaY > 0 ? -zoomStep : zoomStep;
-        
         const newScale = Math.min(Math.max(transform.scale + delta, 1), 5);
         
         if (newScale !== transform.scale) {
             updateVideoTransform(v.id, { scale: parseFloat(newScale.toFixed(2)) });
         }
     };
+
+    React.useEffect(() => {
+        const el = mainPreviewRef.current;
+        if (!el) return;
+        
+        // Use native listener with passive: false to allow preventDefault
+        el.addEventListener('wheel', handleWheelNative, { passive: false });
+        return () => el.removeEventListener('wheel', handleWheelNative);
+    }, [layoutMode, videoFiles, updateVideoTransform]);
 
     const getVideoStyle = (v: MediaFile): React.CSSProperties => {
         if (layoutMode !== 'crop') return {};
@@ -107,29 +126,9 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
     };
 
     return (
-        <>
-            {/* Layout Controls */}
-            {videoFiles.length > 1 && (
-                <div className="flex items-center gap-2 mb-4 bg-white p-2 rounded-xl shadow-sm border border-gray-100 w-fit">
-                    <span className="text-sm font-medium text-gray-600 px-2">Görünüm:</span>
-                    <button
-                        onClick={() => setLayoutMode('scale')}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${layoutMode === 'scale' ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                        <LayoutTemplate size={16} /> Orijinal (Boşluklu)
-                    </button>
-                    <button
-                        onClick={() => setLayoutMode('crop')}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${layoutMode === 'crop' ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                        <LayoutTemplate size={16} className="rotate-90" /> Kırpılmış (Tam Ekran)
-                    </button>
-                </div>
-            )}
-
-            {/* Video player grid */}
-            <div 
-                className={`bg-black rounded-2xl overflow-hidden shadow-xl mb-4 aspect-video relative flex items-center justify-center ${draggingId ? 'cursor-grabbing' : ''}`}
+        <div 
+            ref={mainPreviewRef}
+            className={`bg-black rounded-2xl overflow-hidden shadow-xl mb-4 aspect-video relative flex items-center justify-center ${draggingId ? 'cursor-grabbing' : ''}`}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
@@ -137,9 +136,9 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                 <div className={`w-full h-full flex ${videoFiles.length > 1 ? 'flex-row' : ''}`}>
                     {masterVideo && (
                         <div 
+                            data-video-id={masterVideo.id}
                             className={`group relative ${videoFiles.length > 1 ? 'flex-1 border-r border-gray-800' : 'w-full h-full'} overflow-hidden flex items-center justify-center bg-black ${layoutMode === 'crop' ? 'cursor-grab active:cursor-grabbing' : ''}`}
                             onMouseDown={(e) => handleMouseDown(e, masterVideo)}
-                            onWheel={(e) => handleWheel(e, masterVideo)}
                         >
                             <video
                                 ref={masterVideoRef}
@@ -170,9 +169,9 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                     {otherVideos.map(v => (
                         <div 
                             key={v.id} 
+                            data-video-id={v.id}
                             className={`group relative flex-1 overflow-hidden flex items-center justify-center bg-black border-l border-gray-800 ${layoutMode === 'crop' ? 'cursor-grab active:cursor-grabbing' : ''}`}
                             onMouseDown={(e) => handleMouseDown(e, v)}
-                            onWheel={(e) => handleWheel(e, v)}
                         >
                             <video
                                 ref={el => { if (el) otherVideoRefs.current[v.id] = el; }}
@@ -230,6 +229,5 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                     </div>
                 )}
             </div>
-        </>
     );
 };

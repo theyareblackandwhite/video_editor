@@ -16,7 +16,7 @@ import { WaveformTimeline } from './WaveformTimeline';
 import { CutListSidebar } from './CutListSidebar';
 
 export const TimelineEdit: React.FC = () => {
-    const { videoFiles, audioFiles, cuts, setCuts, layoutMode, setLayoutMode, setStep, updateVideoTransform } = useAppStore();
+    const { videoFiles, audioFiles, cuts, setCuts, layoutMode, setLayoutMode, updateVideoTransform } = useAppStore();
 
     /* ── derived state ── */
     const masterVideo = useMemo(() => videoFiles.find(v => v.isMaster) || videoFiles[0], [videoFiles]);
@@ -96,29 +96,7 @@ export const TimelineEdit: React.FC = () => {
 
     /* ── render ── */
     return (
-        <div className="max-w-full mx-auto py-4 px-4">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-                <div>
-                    <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Düzenle & Kes</h2>
-                    <p className="text-sm text-gray-500">Kesim noktalarını belirleyerek videoyu düzenleyin.</p>
-                </div>
-                <div className="flex gap-3">
-                    <button
-                        onClick={() => setStep(2)}
-                        className="px-5 py-2.5 bg-gray-50 text-gray-600 rounded-xl hover:bg-gray-100 transition-all font-semibold border border-gray-200"
-                    >
-                        ← Geri
-                    </button>
-                    <button
-                        onClick={() => setStep(4)}
-                        className="px-8 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-xl
-                            hover:from-blue-700 hover:to-indigo-700 shadow-xl shadow-blue-600/20 active:scale-[0.98] transition-all"
-                    >
-                        Dışa Aktar →
-                    </button>
-                </div>
-            </div>
+        <div className="max-w-full mx-auto px-4">
 
             {/* ── Main Layout (Vertical) ── */}
             <div className="flex flex-col gap-6">
@@ -130,7 +108,6 @@ export const TimelineEdit: React.FC = () => {
                         allAudioFiles={allAudioFiles}
                         videoFiles={videoFiles}
                         layoutMode={layoutMode}
-                        setLayoutMode={setLayoutMode}
                         mediaUrls={mediaUrls}
                         masterVideoRef={masterVideoRef}
                         otherVideoRefs={otherVideoRefs}
@@ -149,6 +126,9 @@ export const TimelineEdit: React.FC = () => {
                             isPlaying={isPlaying}
                             togglePlay={togglePlay}
                             skip={skip}
+                            layoutMode={layoutMode}
+                            setLayoutMode={setLayoutMode}
+                            hasMultipleVideos={videoFiles.length > 1}
                         />
 
                         <CutToolbar
