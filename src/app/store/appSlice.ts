@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand';
 import type { AppState } from './index';
-import type { Project } from './types';
+import type { Project, VideoTransform } from './types';
 import { mediaStorage } from './mediaStorage';
 
 export interface AppSlice {
@@ -15,6 +15,7 @@ export interface AppSlice {
     deleteProject: (id: string) => void;
     renameProject: (id: string, newName: string) => void;
     updateProjectState: () => void;
+    updateVideoTransform: (id: string, transform: Partial<VideoTransform>) => void;
     hydrateProject: (projectId: string) => Promise<void>;
 }
 
@@ -153,6 +154,25 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
                 )
             }));
         }, 1000); // 1-second debounce
+    },
+
+    updateVideoTransform: (id, transform) => {
+        set((state) => ({
+            videoFiles: state.videoFiles.map(f => {
+                if (f.id === id) {
+                    const currentTransform = f.transform || { scale: 1, x: 0, y: 0 };
+                    return {
+                        ...f,
+                        transform: {
+                            ...currentTransform,
+                            ...transform,
+                        }
+                    };
+                }
+                return f;
+            })
+        }));
+        get().updateProjectState();
     },
 
     hydrateProject: async (projectId) => {

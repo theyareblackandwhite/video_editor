@@ -130,10 +130,40 @@ const composeVideoFilter = (
 
         const scaledVideos = [];
         for (let i = 0; i < syncedVideos.length; i++) {
+            const v = videoFiles.find(file => {
+                if (i === 0) return file.id === masterVideoId;
+                return file.id === otherVideos[i - 1].id;
+            })!;
+            const transform = v.transform || { scale: 1, x: 0, y: 0 };
             const scaleLabel = `v_scale_${i}`;
+
             if (layoutMode === 'crop') {
-                filterComplex.push(`${syncedVideos[i]}scale=-1:720:flags=fast_bilinear,crop=ih:ih:in_w/2-ih/2:0[${scaleLabel}]`);
+                /**
+                 * CROP MODE TRANSFORMATION LOGIC:
+                 * 1. Scale: Height is set to 720 * user_scale. Width follows aspect ratio.
+                 * 2. Pad: Add a large black margin (1000px) around the scaled video to allow "panning" into blackness without filter errors.
+                 * 3. Crop: Extract a 720x720 square.
+                 *    - Default position (centered): 1000 + (scaled_width - 720)/2
+                 *    - User offset: Subtracted from default to match CSS translate (x% moves video right, so crop window moves left).
+                 */
+                const targetH = 720 * transform.scale;
+                const padSize = 1000; // Safe margin for panning
+                const outW = 720;
+                const outH = 720;
+                
+                // s_w and s_h are variables in FFmpeg for the scaled input width/height before padding
+                // However, we can use 'iw' and 'ih' inside crop because they refer to the padded input.
+                // To refer to the scaled size (before padding), we use (in_w - 2*padSize).
+                
+                const filter = [
+                    `scale=-1:${targetH}:flags=fast_bilinear`,
+                    `pad=iw+${padSize * 2}:ih+${padSize * 2}:${padSize}:${padSize}:black`,
+                    `crop=${outW}:${outH}:${padSize}+(in_w-${padSize * 2}-${outW})/2-(${transform.x}/100*(in_w-${padSize * 2})):${padSize}+(in_h-${padSize * 2}-${outH})/2-(${transform.y}/100*(in_h-${padSize * 2}))`
+                ].join(',');
+                
+                filterComplex.push(`${syncedVideos[i]}${filter}[${scaleLabel}]`);
             } else {
+                // Scale mode (Letterbox): Fit within 1280x720 with black bars
                 filterComplex.push(`${syncedVideos[i]}scale=-1:720:flags=fast_bilinear,pad=ih*16/9:ih:(ow-iw)/2:0[${scaleLabel}]`);
             }
             scaledVideos.push(`[${scaleLabel}]`);

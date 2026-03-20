@@ -16,7 +16,7 @@ import { WaveformTimeline } from './WaveformTimeline';
 import { CutListSidebar } from './CutListSidebar';
 
 export const TimelineEdit: React.FC = () => {
-    const { videoFiles, audioFiles, cuts, setCuts, layoutMode, setLayoutMode, setStep } = useAppStore();
+    const { videoFiles, audioFiles, cuts, setCuts, layoutMode, setLayoutMode, setStep, updateVideoTransform } = useAppStore();
 
     /* ── derived state ── */
     const masterVideo = useMemo(() => videoFiles.find(v => v.isMaster) || videoFiles[0], [videoFiles]);
@@ -141,6 +141,7 @@ export const TimelineEdit: React.FC = () => {
                         currentTime={currentTime}
                         markIn={markIn}
                         fmtTime={fmtTime}
+                        updateVideoTransform={updateVideoTransform}
                     />
 
                     <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-4">
