@@ -57,7 +57,18 @@ export function useWaveform({
         wsRef.current.load(url);
         wsRef.current.on('ready', (d) => {
             setDuration(prev => prev > 0 ? prev : d);
-            try { wsRef.current?.zoom(zoomRef.current); } catch { /* */ }
+            
+            // Initial zoom-to-fit
+            if (waveContainerRef.current && d > 0) {
+                const containerWidth = waveContainerRef.current.clientWidth;
+                // pxPerSec = width / duration
+                // We add a tiny bit of padding (98% of width) to ensure it fits comfortably
+                const fitZoom = Math.max(1, (containerWidth * 0.98) / d);
+                setZoom(fitZoom);
+                wsRef.current?.zoom(fitZoom);
+            } else {
+                try { wsRef.current?.zoom(zoomRef.current); } catch { /* */ }
+            }
 
             requestAnimationFrame(() => { updateScrollInfo(); });
 

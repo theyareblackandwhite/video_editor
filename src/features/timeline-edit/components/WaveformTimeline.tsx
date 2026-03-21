@@ -38,11 +38,11 @@ export const WaveformTimeline: React.FC<WaveformTimelineProps> = ({
         <div className="relative">
             {/* Zoom controls */}
             <div className="flex items-center justify-end gap-1 mb-2">
-                <button onClick={() => setZoom(z => Math.max(10, z - 10))} className="p-1 hover:bg-gray-100 rounded transition-colors">
+                <button onClick={() => setZoom(z => Math.max(0.1, z - 5))} className="p-1 hover:bg-gray-100 rounded transition-colors">
                     <ZoomOut size={14} />
                 </button>
-                <span className="text-[10px] font-mono text-gray-400 w-10 text-center">{zoom}px</span>
-                <button onClick={() => setZoom(z => Math.min(500, z + 10))} className="p-1 hover:bg-gray-100 rounded transition-colors">
+                <span className="text-[10px] font-mono text-gray-400 w-12 text-center">{zoom.toFixed(1)}px</span>
+                <button onClick={() => setZoom(z => Math.min(1000, z + 5))} className="p-1 hover:bg-gray-100 rounded transition-colors">
                     <ZoomIn size={14} />
                 </button>
             </div>
