@@ -28,6 +28,7 @@ export const TimelineEdit: React.FC = () => {
     const otherVideoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
     const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
     const waveContainerRef = useRef<HTMLDivElement>(null);
+    const timelineContainerRef = useRef<HTMLDivElement>(null);
 
     const [duration, setDuration] = useState(0);
 
@@ -52,7 +53,7 @@ export const TimelineEdit: React.FC = () => {
         duration,
     });
 
-    const { zoom, setZoom, waveScroll } = useWaveform({
+    const { zoom, setZoom } = useWaveform({
         masterVideo,
         mediaUrls,
         waveContainerRef,
@@ -82,7 +83,8 @@ export const TimelineEdit: React.FC = () => {
         duration,
         setCuts,
         cutsRef,
-        waveScrollWidth: waveScroll.width,
+        zoom,
+        containerRef: timelineContainerRef,
     });
 
     useKeyboardShortcuts({
@@ -185,9 +187,9 @@ export const TimelineEdit: React.FC = () => {
                     <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
                         <WaveformTimeline
                             waveContainerRef={waveContainerRef}
+                            timelineContainerRef={timelineContainerRef}
                             zoom={zoom}
                             setZoom={setZoom}
-                            waveScroll={waveScroll}
                             duration={duration}
                             currentTime={currentTime}
                             sortedCuts={sortedCuts}
