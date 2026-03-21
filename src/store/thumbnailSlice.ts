@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 export interface ThumbnailObject {
   id: string;
-  type: 'text' | 'rect' | 'circle';
+  type: 'text' | 'rect' | 'circle' | 'image';
   x: number;
   y: number;
   width?: number;
@@ -10,12 +10,22 @@ export interface ThumbnailObject {
   fill?: string;
   text?: string;
   fontSize?: number;
+  fontFamily?: string;
+  stroke?: string;
+  strokeWidth?: number;
+  shadowColor?: string;
+  shadowBlur?: number;
+  shadowOffsetX?: number;
+  shadowOffsetY?: number;
+  shadowOpacity?: number;
+  src?: string; // For images
   draggable?: boolean;
   [key: string]: any; // For additional Konva properties
 }
 
 interface ThumbnailState {
   thumbnailBackground: string | null; // Base64 image
+  bgOverlayOpacity: number;
   thumbnailObjects: ThumbnailObject[];
   selectedObjectId: string | null;
 
@@ -30,14 +40,17 @@ interface ThumbnailState {
   bringToFront: (id: string) => void;
   sendToBack: (id: string) => void;
   clearThumbnail: () => void;
+  setBgOverlayOpacity: (opacity: number) => void;
 }
 
 export const useThumbnailStore = create<ThumbnailState>((set) => ({
   thumbnailBackground: null,
+  bgOverlayOpacity: 0,
   thumbnailObjects: [],
   selectedObjectId: null,
 
   setThumbnailBackground: (base64) => set({ thumbnailBackground: base64 }),
+  setBgOverlayOpacity: (opacity) => set({ bgOverlayOpacity: opacity }),
 
   addThumbnailObject: (object) => set((state) => {
     const newObject: ThumbnailObject = {
