@@ -15,16 +15,13 @@ import { CutToolbar } from './CutToolbar';
 import { WaveformTimeline } from './WaveformTimeline';
 import { CutListSidebar } from './CutListSidebar';
 
-export const TimelineEdit: React.FC = () => {
+export const TimelineEdit: React.FC<{ masterVideoRef: React.RefObject<HTMLVideoElement | null> }> = ({ masterVideoRef }) => {
     const { videoFiles, audioFiles, cuts, setCuts, layoutMode, setLayoutMode, updateVideoTransform } = useAppStore();
 
     /* ── derived state ── */
     const masterVideo = useMemo(() => videoFiles.find(v => v.isMaster) || videoFiles[0], [videoFiles]);
     const otherVideos = useMemo(() => videoFiles.filter(v => v.id !== masterVideo?.id), [videoFiles, masterVideo]);
     const allAudioFiles = useMemo(() => audioFiles, [audioFiles]);
-
-    /* ── refs ── */
-    const masterVideoRef = useRef<HTMLVideoElement>(null);
     const otherVideoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
     const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
     const waveContainerRef = useRef<HTMLDivElement>(null);

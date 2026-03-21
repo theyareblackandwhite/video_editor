@@ -2,17 +2,21 @@ import React, { useRef, useEffect, useState } from 'react';
 import { MediaUpload } from './features/media-upload';
 import { AudioSync } from './features/audio-sync';
 import { TimelineEdit } from './features/timeline-edit';
+import { ThumbnailEditor } from './features/thumbnail-design';
 import { VideoExport } from './features/video-export';
 import { useAppStore } from './app/store';
+import { useThumbnailStore } from './store/thumbnailSlice';
+import { captureVideoFrame } from './shared/utils/captureFrame';
 import { ErrorBoundary, ProjectSidebar } from './shared/ui';
 import { StepBar } from './shared/ui';
 import { Menu } from 'lucide-react';
 
-const StepComponents: Record<number, React.FC> = {
+const StepComponents: Record<number, React.FC<any>> = {
   1: MediaUpload,
   2: AudioSync,
   3: TimelineEdit,
-  4: VideoExport,
+  4: ThumbnailEditor,
+  5: VideoExport,
 };
 
 function App() {
@@ -26,6 +30,7 @@ function App() {
   const [animating, setAnimating] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const prevStepRef = useRef(currentStep);
+  const masterVideoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     // If no projects exist, create the default one.
@@ -128,6 +133,12 @@ function App() {
             )}
             {currentStep === 4 && (
               <>
+                <h2 className="text-lg font-bold text-gray-900 leading-tight">Kapak Tasarla</h2>
+                <p className="text-[10px] text-gray-500 font-medium">Video görselini hazırlayın</p>
+              </>
+            )}
+            {currentStep === 5 && (
+              <>
                 <h2 className="text-lg font-bold text-gray-900 leading-tight">Dışa Aktar</h2>
                 <p className="text-[10px] text-gray-500 font-medium">Videonuzu kaydedin</p>
               </>
@@ -157,7 +168,35 @@ function App() {
                   ← Geri
                 </button>
                 <button
-                  onClick={() => useAppStore.getState().setStep(4)}
+                  onClick={() => {
+                    const videoEl = masterVideoRef.current;
+                    if (videoEl) {
+                      try {
+                        const base64 = captureVideoFrame(videoEl);
+                        useThumbnailStore.getState().setThumbnailBackground(base64);
+                      } catch (err) {
+                        console.error("Auto-capture failed:", err);
+                      }
+                    }
+                    useAppStore.getState().setStep(4);
+                  }}
+                  className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-lg
+                    hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
+                >
+                  Kapak Tasarla →
+                </button>
+              </>
+            )}
+            {currentStep === 4 && (
+              <>
+                <button
+                  onClick={() => useAppStore.getState().setStep(3)}
+                  className="px-4 py-2 bg-gray-50 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-all font-semibold border border-gray-200 hidden sm:block"
+                >
+                  ← Geri
+                </button>
+                <button
+                  onClick={() => useAppStore.getState().setStep(5)}
                   className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-lg
                     hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
                 >
@@ -165,12 +204,12 @@ function App() {
                 </button>
               </>
             )}
-            {currentStep === 4 && (
+            {currentStep === 5 && (
               <button
-                onClick={() => useAppStore.getState().setStep(3)}
+                onClick={() => useAppStore.getState().setStep(4)}
                 className="px-4 py-2 bg-gray-50 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-all font-semibold border border-gray-200"
               >
-                ← Düzenle'ye Dön
+                ← Kapağa Dön
               </button>
             )}
           </div>
@@ -180,7 +219,7 @@ function App() {
           <div className="max-w-7xl mx-auto">
             <div className={`transition-all duration-300 ease-out ${getTransformClass()}`}>
               <ErrorBoundary>
-                <Component />
+                <Component masterVideoRef={masterVideoRef} />
               </ErrorBoundary>
             </div>
           </div>
