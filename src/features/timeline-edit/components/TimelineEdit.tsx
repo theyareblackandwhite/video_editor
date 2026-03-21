@@ -95,12 +95,12 @@ export const TimelineEdit: React.FC<{ masterVideoRef: React.RefObject<HTMLVideoE
 
     /* ── render ── */
     return (
-        <div className="w-full pl-64 pr-8 py-8">
-            {/* ── Main Layout (Relative container for absolute sidebar) ── */}
-            <div className="relative">
+        <div className="w-full px-8 py-8">
+            {/* ── Main Layout (Flexbox container) ── */}
+            <div className="flex flex-col xl:flex-row gap-8">
 
-                {/* ── Left Sidebar: Controls (Absolute) ── */}
-                <div className="absolute right-full mr-8 top-0 w-48 shrink-0 flex flex-col gap-4 hidden xl:flex">
+                {/* ── Left Sidebar: Controls (Flex Item) ── */}
+                <div className="w-48 shrink-0 flex flex-col gap-4 hidden xl:flex z-50">
                     <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-4 sticky top-6">
                         <TransportControls
                             isPlaying={isPlaying}
@@ -118,8 +118,6 @@ export const TimelineEdit: React.FC<{ masterVideoRef: React.RefObject<HTMLVideoE
                             handleMarkIn={handleMarkIn}
                             handleCutOut={handleCutOut}
                             masterVideo={masterVideo}
-                            videoFiles={videoFiles}
-                            audioFiles={audioFiles}
                             cuts={cuts}
                             setCuts={setCuts}
                             fmtTime={fmtTime}
@@ -132,10 +130,10 @@ export const TimelineEdit: React.FC<{ masterVideoRef: React.RefObject<HTMLVideoE
                     </div>
                 </div>
 
-                {/* ── Right Content: Preview & Timeline (Full Width) ── */}
-                <div className="w-full flex flex-col gap-6">
-                    {/* Fallback for smaller screens where absolute sidebar might overflow */}
-                    <div className="xl:hidden bg-white rounded-2xl shadow-md border border-gray-100 p-4 mb-6">
+                {/* ── Right Content: Preview & Timeline (Flex Item) ── */}
+                <div className="flex-1 min-w-0 flex flex-col gap-6">
+                    {/* Fallback for smaller screens */}
+                    <div className="xl:hidden bg-white rounded-2xl shadow-md border border-gray-100 p-4 mb-6 z-50">
                          <div className="flex flex-col gap-4">
                             <TransportControls
                                 isPlaying={isPlaying}
@@ -151,8 +149,6 @@ export const TimelineEdit: React.FC<{ masterVideoRef: React.RefObject<HTMLVideoE
                                 handleMarkIn={handleMarkIn}
                                 handleCutOut={handleCutOut}
                                 masterVideo={masterVideo}
-                                videoFiles={videoFiles}
-                                audioFiles={audioFiles}
                                 cuts={cuts}
                                 setCuts={setCuts}
                                 fmtTime={fmtTime}
@@ -197,24 +193,22 @@ export const TimelineEdit: React.FC<{ masterVideoRef: React.RefObject<HTMLVideoE
                             seekTo={seekTo}
                         />
                     </div>
+
+                    {/* ── Bottom Section: Cut List ── */}
+                    <div className="w-full">
+                        <CutListSidebar
+                            sortedCuts={sortedCuts}
+                            cuts={cuts}
+                            selectedCut={selectedCut}
+                            duration={duration}
+                            jumpToCut={jumpToCut}
+                            removeCut={removeCut}
+                            nudgeCutEdge={nudgeCutEdge}
+                        />
+                    </div>
                 </div>
             </div>
-
-
-
-                {/* ── Bottom Section: Cut List ── */}
-                <div className="w-full mt-6">
-                    <CutListSidebar
-                        sortedCuts={sortedCuts}
-                        cuts={cuts}
-                        selectedCut={selectedCut}
-                        duration={duration}
-                        jumpToCut={jumpToCut}
-                        removeCut={removeCut}
-                        nudgeCutEdge={nudgeCutEdge}
-                    />
-                </div>
-            </div>
+        </div>
     );
 };
 

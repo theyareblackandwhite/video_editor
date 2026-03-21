@@ -73,29 +73,58 @@ export function usePlayback({
         seekTo(Math.max(0, Math.min(duration, currentTime + dt)));
     }, [seekTo, currentTime, duration]);
 
+    /* ── Sync state with hardware events ── */
+    useEffect(() => {
+        const video = masterVideoRef.current;
+        if (!video) return;
+
+        const onPlay = () => setIsPlaying(true);
+        const onPause = () => setIsPlaying(false);
+
+        video.addEventListener('play', onPlay);
+        video.addEventListener('pause', onPause);
+        return () => {
+            video.removeEventListener('play', onPlay);
+            video.removeEventListener('pause', onPause);
+        };
+    }, [masterVideoRef]);
+
     /* ── time update loop (with ripple-delete skip) ── */
     useEffect(() => {
         if (!isPlaying) return;
+        
         let raf: number;
         const tick = () => {
-            if (masterVideoRef.current) {
-                const t = masterVideoRef.current.currentTime;
-                let skipped = false;
+            const video = masterVideoRef.current;
+            if (video) {
+                if (video.seeking) {
+                    raf = requestAnimationFrame(tick);
+                    return;
+                }
+
+                const t = video.currentTime;
+                let foundGap = false;
+                
                 for (const cut of cuts) {
                     if (t >= cut.start && t < cut.end) {
-                        seekToRef.current(cut.end);
-                        skipped = true;
+                        console.log(`[Playback] Skipping cut: ${cut.start}s -> ${cut.end}s (current: ${t}s)`);
+                        seekToRef.current(cut.end + 0.015);
+                        foundGap = true;
                         break;
                     }
                 }
-                if (!skipped) {
+
+                if (!foundGap) {
                     setCurrentTime(t);
                 }
             }
             raf = requestAnimationFrame(tick);
         };
+
         raf = requestAnimationFrame(tick);
-        return () => cancelAnimationFrame(raf);
+        return () => {
+            if (raf) cancelAnimationFrame(raf);
+        };
     }, [isPlaying, cuts, masterVideoRef]);
 
     return {

@@ -3,6 +3,7 @@ import { tempDir, join } from '@tauri-apps/api/path';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { mkdir, exists } from '@tauri-apps/plugin-fs';
 import { type CutSegment, type MediaFile } from '../../app/store/types';
+import { NonRealTimeVAD } from '@ricky0123/vad-web';
 
 /**
  * Extracts audio to a temporary WAV file using Native FFmpeg.
@@ -49,89 +50,11 @@ async function extractAudioWav(
     const res1 = await tryCommand('ffmpeg');
     if (res1 === true) return outPath;
 
-    const res2 = await tryCommand('/opt/homebrew/bin/ffmpeg');
+    // Use the alias defined in Tauri capabilities, NOT the raw path
+    const res2 = await tryCommand('ffmpeg-brew');
     if (res2 === true) return outPath;
 
     throw new Error(`FFmpeg ses çıkarma başarısız oldu. \nHata 1: ${res1}\nHata 2: ${res2}`);
-}
-
-/**
- * Extracts a synchronized mixed audio WAV file from multiple sources.
- */
-async function extractSyncedAudioWav(
-    masterVideo: MediaFile,
-    videoFiles: MediaFile[],
-    audioFiles: MediaFile[],
-    sampleRate: number
-): Promise<string> {
-    const dataDir = await tempDir();
-    const outPath = await join(dataDir, `synced_audio_${Date.now()}_${crypto.randomUUID()}.wav`);
-    
-    const otherVideos = videoFiles.filter(v => v.id !== masterVideo.id);
-    const allInputs = [masterVideo, ...otherVideos, ...audioFiles];
-    
-    const args: string[] = ['-y', '-nostdin'];
-    
-    // Add all inputs
-    allInputs.forEach(file => {
-        args.push('-i', file.path);
-    });
-    
-    // Build filter complex for mixing
-    const audioStreams: string[] = [];
-    const filterComplex: string[] = [];
-    
-    allInputs.forEach((file, index) => {
-        const offset = file.syncOffset || 0;
-        const inputLabel = `[${index}:a]`;
-        const syncedLabel = `[a${index}_synced]`;
-        
-        if (offset !== 0) {
-            if (offset > 0) {
-                // Delay start
-                const delayMs = Math.round(offset * 1000);
-                filterComplex.push(`${inputLabel}adelay=${delayMs}|${delayMs}${syncedLabel}`);
-            } else {
-                // Trim start
-                const trimS = Math.abs(offset);
-                filterComplex.push(`${inputLabel}atrim=start=${trimS},asetpts=PTS-STARTPTS${syncedLabel}`);
-            }
-            audioStreams.push(syncedLabel);
-        } else {
-            audioStreams.push(inputLabel);
-        }
-    });
-    
-    let finalAudioLabel = audioStreams[0];
-    if (audioStreams.length > 1) {
-        finalAudioLabel = '[a_mixed]';
-        filterComplex.push(`${audioStreams.join('')}amix=inputs=${audioStreams.length}:normalize=0${finalAudioLabel}`);
-    }
-    
-    if (filterComplex.length > 0) {
-        args.push('-filter_complex', filterComplex.join(';'));
-    }
-    
-    args.push('-map', finalAudioLabel, '-ac', '1', '-ar', sampleRate.toString(), '-f', 'wav', outPath);
-    
-    const tryCommand = async (cmdName: string) => {
-        try {
-            const cmd = Command.create(cmdName, args);
-            const result = await cmd.execute();
-            if (result.code === 0) return true;
-            return result.stderr;
-        } catch (e) {
-            return String(e);
-        }
-    };
-
-    const res1 = await tryCommand('ffmpeg');
-    if (res1 === true) return outPath;
-
-    const res2 = await tryCommand('/opt/homebrew/bin/ffmpeg');
-    if (res2 === true) return outPath;
-
-    throw new Error(`Senkronize ses çıkarma başarısız oldu.\nHata 1: ${res1}\nHata 2: ${res2}`);
 }
 
 /**
@@ -187,19 +110,25 @@ export async function decodeToMono(
  * Detect silent regions in a synchronized timeline.
  * Returns a list of segments representing the silences.
  */
+export interface VadDetectionOptions {
+    speechProbThreshold: number; 
+    minSilenceSec: number;       
+    preRollSec: number;          
+    postRollSec: number;         
+    mergeGapSec: number;         
+}
+
 export async function detectSilences(
     masterVideo: MediaFile,
-    videoFiles: MediaFile[],
-    audioFiles: MediaFile[],
-    thresholdDb: number,
-    minDurationSeconds: number
+    options: VadDetectionOptions
 ): Promise<CutSegment[]> {
-    const sampleRate = 8000;
+    const sampleRate = 16000;
     
-    // 1. Extract synchronized mixed WAV
-    console.log('Starting detectSilences with synced merge...');
-    const wavPath = await extractSyncedAudioWav(masterVideo, videoFiles, audioFiles, sampleRate);
-    console.log('Synced WAV extracted to:', wavPath);
+    // 1. Extract clean audio WAV from exactly the master video
+    // This fulfills the 'extract_clean_audio' goal precisely
+    console.log('Starting extractCleanAudio for VAD...');
+    const wavPath = await extractAudioWav(masterVideo.path, sampleRate);
+    console.log('Clean WAV extracted to:', wavPath);
     
     // 2. Fetch the extracted wav into browser memory
     const assetUrl = convertFileSrc(wavPath);
@@ -215,10 +144,10 @@ export async function detectSilences(
         throw new Error(`Birleştirilmiş ses dosyası yüklenemedi: ${e}`);
     }
     
-    // 3. Decode into Float32Array
+    // 3. Decode into Float32Array (Force 16kHz for Silero Model)
     let samples: Float32Array;
     try {
-        const tempCtx = new AudioContext();
+        const tempCtx = new AudioContext({ sampleRate: 16000 });
         const decoded = await tempCtx.decodeAudioData(arrayBuffer);
         samples = decoded.getChannelData(0);
         await tempCtx.close();
@@ -227,68 +156,96 @@ export async function detectSilences(
         throw new Error(`Ses verisi çözülemedi. Dosya çok büyük olabilir: ${e}`);
     }
 
-    // Convert thresholdDb to linear amplitude
-    const thresholdLinear = Math.pow(10, thresholdDb / 20);
+    // Initialize VAD model
+    // The model URLs are stored in the public/models directory locally.
+    // We attach window.location.origin so Vite ignores the dynamic import pipeline.
+    console.log("Loading Silero VAD ONNX model...");
+    const vad = await NonRealTimeVAD.new({
+        modelURL: window.location.origin + "/models/silero_vad_legacy.onnx",
+        ortConfig(ort: any) {
+            ort.env.wasm.wasmPaths = window.location.origin + "/models/";
+        },
+        positiveSpeechThreshold: options.speechProbThreshold,
+        negativeSpeechThreshold: 0.35,
+        redemptionMs: 200,      // requires ~200ms of < 0.35 to stop
+        minSpeechMs: 64,        // Ignore tiny < 64ms spikes
+    });
 
-    const minSamples = Math.floor(minDurationSeconds * sampleRate);
-    const cuts: CutSegment[] = [];
+    console.log("Running VAD inference...");
+    let speechSegmentsIterator;
+    try {
+        speechSegmentsIterator = await vad.run(samples, sampleRate);
+    } catch (e) {
+         console.error('VAD Inference failed:', e);
+         throw new Error(`VAD motoru çalıştırılamadı: ${e}`);
+    }
+    
+    // Collect speech segments
+    const speechSegments = [];
+    for await (const segment of speechSegmentsIterator) {
+        const startSec = segment.start / 1000;
+        const endSec = segment.end / 1000;
+        speechSegments.push({ start: startSec, end: endSec });
+    }
 
-    let silenceStartSample = -1;
+    console.log(`Detected ${speechSegments.length} initial speech segments.`);
 
-    // Process in small chunks for a bit more efficiency (though still all in memory)
-    const chunkSize = Math.floor(0.1 * sampleRate);
-    let lastYieldTime = Date.now();
-    const YIELD_INTERVAL_MS = 16; // Yield every ~frame (16ms)
+    // 4. Look-ahead Padding & Small Gap Merger
+    const finalSpeechSegments: { start: number, end: number }[] = [];
+    
+    for (const seg of speechSegments) {
+        const paddedStart = Math.max(0.0, seg.start - options.preRollSec);
+        const paddedEnd = seg.end + options.postRollSec;
 
-    for (let i = 0; i < samples.length; i += chunkSize) {
-        // Yield to main thread to keep UI responsive
-        if (Date.now() - lastYieldTime > YIELD_INTERVAL_MS) {
-            await new Promise(resolve => setTimeout(resolve, 0));
-            lastYieldTime = Date.now();
-        }
-
-        const endIdx = Math.min(i + chunkSize, samples.length);
-
-        let maxAmp = 0;
-        for (let j = i; j < endIdx; j++) {
-            const abs = Math.abs(samples[j]);
-            if (abs > maxAmp) {
-                maxAmp = abs;
-            }
-        }
-
-        const isSilent = maxAmp < thresholdLinear;
-
-        if (isSilent) {
-            if (silenceStartSample === -1) {
-                silenceStartSample = i;
-            }
+        if (finalSpeechSegments.length === 0) {
+            finalSpeechSegments.push({ start: paddedStart, end: paddedEnd });
         } else {
-            if (silenceStartSample !== -1) {
-                const silenceSamples = i - silenceStartSample;
-                if (silenceSamples >= minSamples) {
-                    cuts.push({
-                        id: `auto-${Date.now()}-${crypto.randomUUID()}`,
-                        start: silenceStartSample / sampleRate,
-                        end: i / sampleRate
-                    });
-                }
-                silenceStartSample = -1;
+            const prevSeg = finalSpeechSegments[finalSpeechSegments.length - 1];
+            const gapBetween = paddedStart - prevSeg.end;
+
+            // Merge segments if the gap between them is less than specified mergeGapSec
+            if (gapBetween < options.mergeGapSec) {
+                // Extend previous segment end to encompass this one
+                prevSeg.end = Math.max(prevSeg.end, paddedEnd);
+            } else {
+                finalSpeechSegments.push({ start: paddedStart, end: paddedEnd });
             }
         }
     }
 
-    // Handle case where file ends with silence
-    if (silenceStartSample !== -1) {
-        const silenceSamples = samples.length - silenceStartSample;
-        if (silenceSamples >= minSamples) {
+    // 6. Invert Speech to "Silence Cuts"
+    const totalDuration = samples.length / sampleRate;
+    const cuts: CutSegment[] = [];
+    let lastSpeechEnd = 0.0;
+
+    for (const speech of finalSpeechSegments) {
+        // Everything between the end of the last speech and start of this speech is cuttable silence
+        if (speech.start > lastSpeechEnd) {
+            const silenceDuration = speech.start - lastSpeechEnd;
+            if (silenceDuration >= options.minSilenceSec) {
+                cuts.push({
+                    id: `auto-${Date.now()}-${crypto.randomUUID()}`,
+                    start: lastSpeechEnd,
+                    end: speech.start
+                });
+            }
+        }
+        lastSpeechEnd = speech.end;
+    }
+
+    // Check for trailing silence at the end of the video
+    if (lastSpeechEnd < totalDuration) {
+        const silenceDuration = totalDuration - lastSpeechEnd;
+        if (silenceDuration >= options.minSilenceSec) {
             cuts.push({
                 id: `auto-${Date.now()}-${crypto.randomUUID()}`,
-                start: silenceStartSample / sampleRate,
-                end: samples.length / sampleRate
+                start: lastSpeechEnd,
+                end: totalDuration
             });
         }
     }
+
+    console.log(`Generated ${cuts.length} silence cuts to remove.`);
 
     return cuts;
 }

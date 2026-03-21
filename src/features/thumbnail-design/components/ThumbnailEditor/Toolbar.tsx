@@ -1,8 +1,9 @@
+// Fixed paths for thumbnail feature
 import React from 'react';
 import { Type, Square, Circle as CircleIcon, Pickaxe, ImageIcon, Download } from 'lucide-react';
-import { useThumbnailStore } from '../../../../../store/thumbnailSlice';
-import { captureVideoFrame } from '../../../../../shared/utils/captureFrame';
-import { STAGE_WIDTH, STAGE_HEIGHT } from '../../../../hooks/useStageScale';
+import { useThumbnailStore } from '../../../../store/thumbnailSlice';
+import { captureVideoFrame } from '../../../../shared/utils/captureFrame';
+import { STAGE_WIDTH, STAGE_HEIGHT } from '../../hooks/useStageScale';
 
 interface ToolbarProps {
   stageRef: React.RefObject<any>;

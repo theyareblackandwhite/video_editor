@@ -2,6 +2,34 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import fs from 'fs';
+import path from 'path';
+
+// Automatically sync AI models to public/models for offline Tauri
+const modelsDir = path.resolve(__dirname, 'public', 'models');
+if (!fs.existsSync(modelsDir)) {
+  fs.mkdirSync(modelsDir, { recursive: true });
+}
+
+const wasmDist = path.resolve(__dirname, 'node_modules', 'onnxruntime-web', 'dist');
+if (fs.existsSync(wasmDist)) {
+  fs.readdirSync(wasmDist).forEach(file => {
+    const src = path.join(wasmDist, file);
+    if (fs.statSync(src).isFile()) {
+      fs.copyFileSync(src, path.join(modelsDir, file));
+    }
+  });
+}
+
+const vadDist = path.resolve(__dirname, 'node_modules', '@ricky0123', 'vad-web', 'dist');
+if (fs.existsSync(vadDist)) {
+  ['silero_vad_legacy.onnx'].forEach(file => {
+    const src = path.join(vadDist, file);
+    if (fs.existsSync(src)) {
+      fs.copyFileSync(src, path.join(modelsDir, file));
+    }
+  });
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
