@@ -29,10 +29,30 @@ function App() {
   const [direction, setDirection] = useState<'left' | 'right'>('right');
   const [animating, setAnimating] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
   const prevStepRef = useRef(currentStep);
   const masterVideoRef = useRef<HTMLVideoElement>(null);
 
+  // Monitor store hydration
   useEffect(() => {
+    const unsub = useAppStore.persist.onHydrate(() => setIsHydrated(false));
+    const unsubFinish = useAppStore.persist.onFinishHydration(() => setIsHydrated(true));
+    
+    // Initial check
+    if (useAppStore.persist.hasHydrated()) {
+      setIsHydrated(true);
+    }
+
+    return () => {
+      unsub();
+      unsubFinish();
+    };
+  }, []);
+
+  useEffect(() => {
+    // ONLY run project logic AFTER hydration is complete to avoid race conditions
+    if (!isHydrated) return;
+
     // If no projects exist, create the default one.
     if (projectsLength === 0) {
       createProject('Adsız Proje 1');
@@ -51,7 +71,7 @@ function App() {
         }
       }
     }
-  }, [projectsLength, currentProjectId, firstProjectId, createProject, switchProject, hydrateProject]);
+  }, [isHydrated, projectsLength, currentProjectId, firstProjectId, createProject, switchProject, hydrateProject]);
 
   useEffect(() => {
     if (currentStep !== prevStepRef.current) {
