@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Stage, Layer, Image as KonvaImage, Text, Rect, Circle, Transformer } from 'react-konva';
+import { Stage, Layer, Image as KonvaImage, Text, Rect, Circle, Transformer, Line } from 'react-konva';
 import useImage from 'use-image';
 import { useThumbnailStore, type ThumbnailObject } from '../../../store/thumbnailSlice';
 import { captureVideoFrame } from '../../../shared/utils/captureFrame';
@@ -46,6 +46,7 @@ export const ThumbnailEditor: React.FC<ThumbnailEditorProps> = ({ masterVideoRef
   const layerRef = useRef<any>(null);
   const trRef = useRef<any>(null);
   const [stageScale, setStageScale] = useState(1);
+  const [guidelines, setGuidelines] = useState<any[]>([]);
   const [bgImage] = useImage(thumbnailBackground || '', 'anonymous');
 
   const masterVideo = videoFiles.find(v => v.isMaster) || videoFiles[0];
@@ -171,7 +172,103 @@ export const ThumbnailEditor: React.FC<ThumbnailEditorProps> = ({ masterVideoRef
       draggable: true,
       onClick: () => selectObject(obj.id),
       onTap: () => selectObject(obj.id),
+      onDragMove: (e: any) => {
+        const node = e.target;
+        const layer = node.getLayer();
+        
+        // Use relativeTo layer to avoid stage scale affecting the bounding box
+        const box = node.getClientRect({ relativeTo: layer });
+        const pos = node.position();
+
+        // Snapping threshold
+        const SNAP_THRESHOLD = 10;
+        
+        // Define snap targets (center and edges)
+        const verticalTargets = [0, STAGE_WIDTH / 2, STAGE_WIDTH];
+        const horizontalTargets = [0, STAGE_HEIGHT / 2, STAGE_HEIGHT];
+        
+        const objLeft = box.x;
+        const objCenterX = box.x + box.width / 2;
+        const objRight = box.x + box.width;
+        
+        const objTop = box.y;
+        const objCenterY = box.y + box.height / 2;
+        const objBottom = box.y + box.height;
+        
+        let snapX: number | null = null;
+        let snapY: number | null = null;
+        let offsetX = 0;
+        let offsetY = 0;
+        
+        const newGuidelines: any[] = [];
+        
+        let minDistanceX = Infinity;
+        for (const target of verticalTargets) {
+          const distLeft = Math.abs(target - objLeft);
+          if (distLeft < SNAP_THRESHOLD && distLeft < minDistanceX) {
+            minDistanceX = distLeft;
+            snapX = target;
+            offsetX = target - objLeft;
+          }
+          const distCenter = Math.abs(target - objCenterX);
+          if (distCenter < SNAP_THRESHOLD && distCenter < minDistanceX) {
+            minDistanceX = distCenter;
+            snapX = target;
+            offsetX = target - objCenterX;
+          }
+          const distRight = Math.abs(target - objRight);
+          if (distRight < SNAP_THRESHOLD && distRight < minDistanceX) {
+            minDistanceX = distRight;
+            snapX = target;
+            offsetX = target - objRight;
+          }
+        }
+        
+        let minDistanceY = Infinity;
+        for (const target of horizontalTargets) {
+            const distTop = Math.abs(target - objTop);
+            if (distTop < SNAP_THRESHOLD && distTop < minDistanceY) {
+                minDistanceY = distTop;
+                snapY = target;
+                offsetY = target - objTop;
+            }
+            const distCenterY = Math.abs(target - objCenterY);
+            if (distCenterY < SNAP_THRESHOLD && distCenterY < minDistanceY) {
+                minDistanceY = distCenterY;
+                snapY = target;
+                offsetY = target - objCenterY;
+            }
+            const distBottom = Math.abs(target - objBottom);
+            if (distBottom < SNAP_THRESHOLD && distBottom < minDistanceY) {
+                minDistanceY = distBottom;
+                snapY = target;
+                offsetY = target - objBottom;
+            }
+        }
+        
+        if (snapX !== null || snapY !== null) {
+            const newPos = { ...pos };
+            if (snapX !== null) {
+                newPos.x += offsetX;
+                newGuidelines.push({
+                    points: [snapX, 0, snapX, STAGE_HEIGHT],
+                    orientation: 'V'
+                });
+            }
+            if (snapY !== null) {
+                newPos.y += offsetY;
+                newGuidelines.push({
+                    points: [0, snapY, STAGE_WIDTH, snapY],
+                    orientation: 'H'
+                });
+            }
+            node.position(newPos);
+        }
+        
+        setGuidelines(newGuidelines);
+      },
       onDragEnd: (e: any) => {
+        setGuidelines([]);
         updateThumbnailObject(obj.id, {
           x: e.target.x(),
           y: e.target.y(),
@@ -311,6 +408,18 @@ export const ThumbnailEditor: React.FC<ThumbnailEditorProps> = ({ masterVideoRef
                 />
               )}
               {thumbnailObjects.map(renderObject)}
+              
+              {/* Magnetic Guidelines */}
+              {guidelines.map((line, i) => (
+                <Line
+                  key={`guideline-${i}`}
+                  points={line.points}
+                  stroke="#f55656"
+                  strokeWidth={1}
+                  dash={[4, 4]}
+                  listening={false}
+                />
+              ))}
               
               {/* Transformer enables resizing and rotating */}
               {selectedObjectId && (
