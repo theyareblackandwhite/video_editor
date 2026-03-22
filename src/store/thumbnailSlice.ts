@@ -12,6 +12,11 @@ export interface ThumbnailObject {
   text?: string;
   fontSize?: number;
   fontFamily?: string;
+  fontStyle?: string; // 'normal', 'italic', 'bold', 'bold italic'
+  textDecoration?: string; // 'none', 'underline'
+  align?: string; // 'left', 'center', 'right'
+  lineHeight?: number;
+  letterSpacing?: number;
   stroke?: string;
   strokeWidth?: number;
   shadowColor?: string;
@@ -21,6 +26,12 @@ export interface ThumbnailObject {
   shadowOpacity?: number;
   src?: string; // For images
   draggable?: boolean;
+  
+  // Background/Label properties
+  textBackgroundEnabled?: boolean;
+  textBackgroundColor?: string;
+  padding?: number;
+  
   [key: string]: any; // For additional Konva properties
 }
 

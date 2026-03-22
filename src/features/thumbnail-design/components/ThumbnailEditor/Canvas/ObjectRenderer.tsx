@@ -1,7 +1,8 @@
-import React from 'react';
-import { Text, Rect, Circle } from 'react-konva';
+import React, { useEffect } from 'react';
+import { Text, Rect, Circle, Label, Tag } from 'react-konva';
 import { useThumbnailStore, type ThumbnailObject } from '../../../../../store/thumbnailSlice';
 import { StickerImage } from './StickerImage';
+import { loadGoogleFont } from '../../../../../shared/utils/fontLoader';
 
 interface ObjectRendererProps {
   obj: ThumbnailObject;
@@ -12,13 +13,26 @@ interface ObjectRendererProps {
 export const ObjectRenderer: React.FC<ObjectRendererProps> = ({ obj, handleDragMove, handleDragEnd }) => {
   const { selectObject, updateThumbnailObject } = useThumbnailStore();
 
+  // Load font if it's a text object
+  useEffect(() => {
+    if (obj.type === 'text' && obj.fontFamily) {
+      loadGoogleFont(obj.fontFamily);
+    }
+  }, [obj.type, obj.fontFamily]);
+
   const commonProps = {
     ...obj,
     key: obj.id,
     id: obj.id,
     draggable: true,
-    onClick: () => selectObject(obj.id),
-    onTap: () => selectObject(obj.id),
+    onClick: (e: any) => {
+      e.cancelBubble = true;
+      selectObject(obj.id);
+    },
+    onTap: (e: any) => {
+      e.cancelBubble = true;
+      selectObject(obj.id);
+    },
     onDragMove: handleDragMove,
     onDragEnd: (e: any) => {
       handleDragEnd();
@@ -56,6 +70,25 @@ export const ObjectRenderer: React.FC<ObjectRendererProps> = ({ obj, handleDragM
 
   switch (obj.type) {
     case 'text':
+      if (obj.textBackgroundEnabled) {
+        return (
+          <Label {...commonProps}>
+            <Tag 
+              fill={obj.textBackgroundColor || '#000000'} 
+              padding={obj.padding || 10}
+              cornerRadius={5}
+            />
+            <Text 
+              {...obj} 
+              x={0} 
+              y={0} 
+              draggable={false}
+              onClick={undefined}
+              onTap={undefined}
+            />
+          </Label>
+        );
+      }
       return <Text {...commonProps} />;
     case 'rect':
       return <Rect {...commonProps} />;
