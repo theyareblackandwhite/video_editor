@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { 
-  Trash2, ArrowUpToLine, ChevronUp, ChevronDown, ArrowDownToLine,
+  Trash2, Eye, EyeOff, Lock, Unlock,
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight
 } from 'lucide-react';
 import { useThumbnailStore } from '../../../../../store/thumbnailSlice';
@@ -12,10 +12,8 @@ export const PropertiesPanel: React.FC = () => {
     selectedObjectId,
     updateThumbnailObject,
     removeThumbnailObject,
-    bringToFront,
-    moveObjectUp,
-    moveObjectDown,
-    sendToBack
+    toggleVisibility,
+    toggleLock,
   } = useThumbnailStore();
 
   const selectedNode = thumbnailObjects.find(o => o.id === selectedObjectId);
@@ -63,37 +61,31 @@ export const PropertiesPanel: React.FC = () => {
       </div>
 
       <div className="p-4 flex flex-col gap-4">
-        {/* Layering Controls */}
+        {/* Layer State Controls */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs text-slate-400">Katman (Sıralama)</label>
-          <div className="grid grid-cols-4 gap-1">
+          <label className="text-xs text-slate-400">Durum</label>
+          <div className="grid grid-cols-2 gap-2">
             <button
-              onClick={() => bringToFront(selectedObjectId)}
-              className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded flex justify-center transition-colors"
-              title="En Üste Getir"
+              onClick={() => toggleVisibility(selectedObjectId)}
+              className={`p-2 rounded flex items-center justify-center gap-2 transition-all border ${
+                selectedNode.isVisible === false 
+                  ? 'bg-red-500/20 border-red-500/50 text-red-400' 
+                  : 'bg-slate-700/50 border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white'
+              }`}
             >
-              <ArrowUpToLine className="w-4 h-4" />
+              {selectedNode.isVisible === false ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              <span className="text-[10px] font-bold uppercase">{selectedNode.isVisible === false ? 'Gizli' : 'Görünür'}</span>
             </button>
             <button
-              onClick={() => moveObjectUp(selectedObjectId)}
-              className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded flex justify-center transition-colors"
-              title="Bir Katman Üste"
+              onClick={() => toggleLock(selectedObjectId)}
+              className={`p-2 rounded flex items-center justify-center gap-2 transition-all border ${
+                selectedNode.isLocked 
+                  ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400' 
+                  : 'bg-slate-700/50 border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white'
+              }`}
             >
-              <ChevronUp className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => moveObjectDown(selectedObjectId)}
-              className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded flex justify-center transition-colors"
-              title="Bir Katman Alta"
-            >
-              <ChevronDown className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => sendToBack(selectedObjectId)}
-              className="p-2 bg-slate-700 hover:bg-slate-600 text-white rounded flex justify-center transition-colors"
-              title="En Alta Gönder"
-            >
-              <ArrowDownToLine className="w-4 h-4" />
+              {selectedNode.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+              <span className="text-[10px] font-bold uppercase">{selectedNode.isLocked ? 'Kilitli' : 'Açık'}</span>
             </button>
           </div>
         </div>
@@ -355,6 +347,26 @@ export const PropertiesPanel: React.FC = () => {
           </>
         )}
       </div>
+
+      {selectedNode.isLocked && (
+        <div className="absolute inset-0 top-11 bg-slate-900/60 backdrop-blur-[2px] z-20 flex items-center justify-center p-6 text-center">
+          <div className="flex flex-col items-center gap-3 animate-in zoom-in-95 duration-200">
+            <div className="p-4 bg-yellow-500/20 rounded-full border border-yellow-500/30">
+              <Lock className="w-8 h-8 text-yellow-400" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-white mb-1">Katman Kilitli</p>
+              <p className="text-[10px] text-slate-400">Düzenlemek için katmanın kilidini açın.</p>
+            </div>
+            <button
+              onClick={() => toggleLock(selectedObjectId)}
+              className="mt-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-bold text-white transition-all"
+            >
+              Kilidi Kaldır
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

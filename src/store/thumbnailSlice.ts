@@ -32,6 +32,9 @@ export interface ThumbnailObject {
   textBackgroundColor?: string;
   padding?: number;
   
+  isVisible?: boolean;
+  isLocked?: boolean;
+  
   [key: string]: any; // For additional Konva properties
 }
 
@@ -51,6 +54,9 @@ interface ThumbnailState {
   moveObjectDown: (id: string) => void;
   bringToFront: (id: string) => void;
   sendToBack: (id: string) => void;
+  toggleVisibility: (id: string) => void;
+  toggleLock: (id: string) => void;
+  reorderObjects: (newOrder: ThumbnailObject[]) => void;
   clearThumbnail: () => void;
   setBgOverlayOpacity: (opacity: number) => void;
 }
@@ -68,7 +74,9 @@ export const useThumbnailStore = create<ThumbnailState>()(
   addThumbnailObject: (object) => set((state) => {
     const newObject: ThumbnailObject = {
       ...object,
-      id: crypto.randomUUID()
+      id: crypto.randomUUID(),
+      isVisible: true,
+      isLocked: false
     } as ThumbnailObject;
     return {
       thumbnailObjects: [...state.thumbnailObjects, newObject]
@@ -117,6 +125,20 @@ export const useThumbnailStore = create<ThumbnailState>()(
     const filtered = state.thumbnailObjects.filter(o => o.id !== id);
     return { thumbnailObjects: [obj, ...filtered] };
   }),
+
+  toggleVisibility: (id) => set((state) => ({
+    thumbnailObjects: state.thumbnailObjects.map((obj) =>
+      obj.id === id ? { ...obj, isVisible: !obj.isVisible } : obj
+    )
+  })),
+
+  toggleLock: (id) => set((state) => ({
+    thumbnailObjects: state.thumbnailObjects.map((obj) =>
+      obj.id === id ? { ...obj, isLocked: !obj.isLocked } : obj
+    )
+  })),
+
+  reorderObjects: (newOrder) => set({ thumbnailObjects: newOrder }),
 
   clearThumbnail: () => set({
     thumbnailBackground: null,

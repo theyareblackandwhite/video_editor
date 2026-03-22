@@ -20,21 +20,26 @@ export const ObjectRenderer: React.FC<ObjectRendererProps> = ({ obj, handleDragM
     }
   }, [obj.type, obj.fontFamily]);
 
+  if (obj.isVisible === false) return null;
+
   const commonProps = {
     ...obj,
     key: obj.id,
     id: obj.id,
-    draggable: true,
+    draggable: !obj.isLocked,
     onClick: (e: any) => {
+      if (obj.isLocked) return;
       e.cancelBubble = true;
       selectObject(obj.id);
     },
     onTap: (e: any) => {
+      if (obj.isLocked) return;
       e.cancelBubble = true;
       selectObject(obj.id);
     },
     onDragMove: handleDragMove,
     onDragEnd: (e: any) => {
+      if (obj.isLocked) return;
       handleDragEnd();
       updateThumbnailObject(obj.id, {
         x: e.target.x(),

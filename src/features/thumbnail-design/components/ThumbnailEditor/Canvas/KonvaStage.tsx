@@ -30,6 +30,15 @@ export const KonvaStage: React.FC<KonvaStageProps> = ({ stageScale, stageWidth, 
   // Attach transformer to selected object
   useEffect(() => {
     if (selectedObjectId) {
+      const selectedObj = thumbnailObjects.find(o => o.id === selectedObjectId);
+      const isLocked = selectedObj?.isLocked;
+      const isVisible = selectedObj?.isVisible !== false;
+
+      if (isLocked || !isVisible) {
+        trRef.current?.nodes([]);
+        return;
+      }
+
       const selectedNode = layerRef.current?.findOne('#' + selectedObjectId);
       if (selectedNode && trRef.current) {
         trRef.current.nodes([selectedNode]);
