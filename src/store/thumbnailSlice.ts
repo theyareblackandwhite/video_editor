@@ -57,6 +57,7 @@ interface ThumbnailState {
   toggleVisibility: (id: string) => void;
   toggleLock: (id: string) => void;
   reorderObjects: (newOrder: ThumbnailObject[]) => void;
+  loadTemplate: (objects: ThumbnailObject[]) => void;
   clearThumbnail: () => void;
   setBgOverlayOpacity: (opacity: number) => void;
 }
@@ -139,6 +140,17 @@ export const useThumbnailStore = create<ThumbnailState>()(
   })),
 
   reorderObjects: (newOrder) => set({ thumbnailObjects: newOrder }),
+
+  loadTemplate: (objects) => set({
+    // Reset objects and assign new IDs to template objects for stability
+    thumbnailObjects: objects.map(obj => ({
+      ...obj,
+      id: crypto.randomUUID(),
+      isVisible: true,
+      isLocked: false
+    })),
+    selectedObjectId: null
+  }),
 
   clearThumbnail: () => set({
     thumbnailBackground: null,
