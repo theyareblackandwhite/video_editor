@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { useStageScale } from '../../../hooks/useStageScale';
 import { useThumbnailStore } from '../../../../../store/thumbnailSlice';
 import { KonvaStage } from './KonvaStage';
@@ -11,6 +11,30 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({ stageRef }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const { stageScale, STAGE_WIDTH, STAGE_HEIGHT } = useStageScale(containerRef);
   const { thumbnailBackground } = useThumbnailStore();
+  const { undo, redo } = useThumbnailStore.temporal.getState();
+
+  // Keyboard Shortcuts for Undo/Redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const ctrlKey = isMac ? e.metaKey : e.ctrlKey;
+
+      if (ctrlKey && e.key.toLowerCase() === 'z') {
+        if (e.shiftKey) {
+          redo(); // Redo for Cmd+Shift+Z
+        } else {
+          undo();
+        }
+        e.preventDefault();
+      } else if (ctrlKey && e.key.toLowerCase() === 'y') {
+        redo(); // Redo for Ctrl+Y
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo]);
 
   return (
     <div 

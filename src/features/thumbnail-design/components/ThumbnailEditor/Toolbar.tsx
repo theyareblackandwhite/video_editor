@@ -1,9 +1,9 @@
-// Fixed paths for thumbnail feature
 import React from 'react';
-import { Type, Square, Circle as CircleIcon, Pickaxe, ImageIcon, Download } from 'lucide-react';
+import { Type, Square, Circle as CircleIcon, Pickaxe, ImageIcon, Download, Undo, Redo } from 'lucide-react';
 import { useThumbnailStore } from '../../../../store/thumbnailSlice';
 import { captureVideoFrame } from '../../../../shared/utils/captureFrame';
 import { STAGE_WIDTH, STAGE_HEIGHT } from '../../hooks/useStageScale';
+import { useStore } from 'zustand';
 
 interface ToolbarProps {
   stageRef: React.RefObject<any>;
@@ -13,6 +13,9 @@ interface ToolbarProps {
 
 export const Toolbar: React.FC<ToolbarProps> = ({ stageRef, externalVideoRef, internalVideoRef }) => {
   const { addThumbnailObject, setThumbnailBackground, selectObject } = useThumbnailStore();
+  
+  // Use useStore to subscribe to the temporal store for reactivity
+  const { undo, redo, pastStates, futureStates } = useStore(useThumbnailStore.temporal, (state) => state);
 
   const handleCapture = () => {
     const videoEl = externalVideoRef?.current || internalVideoRef.current;
@@ -84,10 +87,32 @@ export const Toolbar: React.FC<ToolbarProps> = ({ stageRef, externalVideoRef, in
 
   return (
     <div className="p-4 border-b border-slate-700 flex items-center justify-between bg-slate-800">
-      <h2 className="text-xl font-bold text-white flex items-center gap-2">
-        <Pickaxe className="w-5 h-5 text-blue-500" />
-        Kapak Tasarımı
-      </h2>
+      <div className="flex items-center gap-4">
+        <h2 className="text-xl font-bold text-white flex items-center gap-2">
+          <Pickaxe className="w-5 h-5 text-blue-500" />
+          Kapak Tasarımı
+        </h2>
+        
+        <div className="flex gap-1 ml-4 border-l border-slate-700 pl-4">
+          <button
+            onClick={() => undo()}
+            disabled={pastStates.length === 0}
+            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-transparent rounded-md transition-all sm:flex hidden"
+            title="Geri Al (Ctrl+Z)"
+          >
+            <Undo className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => redo()}
+            disabled={futureStates.length === 0}
+            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-transparent rounded-md transition-all sm:flex hidden"
+            title="İleri Al (Ctrl+Y)"
+          >
+            <Redo className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+
       <div className="flex gap-4 items-center">
         <div className="flex gap-2 border-r border-slate-700 pr-4">
           <button

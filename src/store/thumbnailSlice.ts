@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { temporal } from 'zundo';
 
 export interface ThumbnailObject {
   id: string;
@@ -43,7 +44,8 @@ interface ThumbnailState {
   setBgOverlayOpacity: (opacity: number) => void;
 }
 
-export const useThumbnailStore = create<ThumbnailState>((set) => ({
+export const useThumbnailStore = create<ThumbnailState>()(
+  temporal((set) => ({
   thumbnailBackground: null,
   bgOverlayOpacity: 0,
   thumbnailObjects: [],
@@ -110,4 +112,5 @@ export const useThumbnailStore = create<ThumbnailState>((set) => ({
     thumbnailObjects: [],
     selectedObjectId: null
   })
-}));
+}))
+);
