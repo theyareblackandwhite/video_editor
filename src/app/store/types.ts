@@ -21,6 +21,7 @@ export interface MediaFile {
     size: number;
     syncOffset: number; // Offset relative to master
     isMaster?: boolean;
+    isMuted?: boolean;
     transform?: VideoTransform;
 }
 

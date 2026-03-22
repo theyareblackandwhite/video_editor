@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
-import { Scissors, Trash2, Plus, AudioLines, Loader2 } from 'lucide-react';
+import { Scissors, Trash2, Plus, AudioLines, Loader2, Sparkles } from 'lucide-react';
 import type { MediaFile } from '../../../app/store/types';
 import { detectSilences } from '../../../shared/utils/audio';
+
+import { useAppStore } from '../../../app/store';
+import { useAutoSync } from '../../audio-sync/hooks/useAutoSync';
 
 interface CutToolbarProps {
     markIn: number | null;
@@ -23,6 +26,9 @@ export const CutToolbar: React.FC<CutToolbarProps> = ({
     setCuts,
     fmtTime,
 }) => {
+    const { videoFiles, audioFiles, setVideoMuted } = useAppStore();
+    const { runMagicSync, phase, progress } = useAutoSync();
+
     const [showAutoCutSettings, setShowAutoCutSettings] = useState(false);
     const [isDetectingSilences, setIsDetectingSilences] = useState(false);
     // VAD Options
@@ -31,6 +37,18 @@ export const CutToolbar: React.FC<CutToolbarProps> = ({
     const [preRollSec, setPreRollSec] = useState(0.150);
     const [postRollSec, setPostRollSec] = useState(0.200);
     const [mergeGapSec, setMergeGapSec] = useState(0.400);
+
+    const handleMagicSync = async () => {
+        if (videoFiles.length !== 2 || audioFiles.length !== 2) {
+            alert('Sihirli Senkronizasyon için 2 Video ve 2 Mikrofon sesi gereklidir.');
+            return;
+        }
+        await runMagicSync(videoFiles, audioFiles);
+        // Senkronizasyon bittikten sonra kamera seslerini kapat
+        setVideoMuted(videoFiles[0].id, true);
+        setVideoMuted(videoFiles[1].id, true);
+        alert('Sihirli Senkronizasyon ve Temizleme işlemi tamamlandı! Kameraların sesi kapatıldı.');
+    };
 
     const handleDetectSilences = async () => {
         if (!masterVideo) return;
@@ -58,6 +76,17 @@ export const CutToolbar: React.FC<CutToolbarProps> = ({
     return (
         <div className="flex flex-col gap-4 w-full">
             <div className="flex flex-col gap-2 w-full">
+                <button
+                    onClick={handleMagicSync}
+                    disabled={phase === 'processing'}
+                    className="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-50"
+                >
+                    {phase === 'processing' ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                    {phase === 'processing' ? `Eşitleniyor... %${Math.round(progress * 100)}` : 'Sihirli Senkronizasyon'}
+                </button>
+
+                <div className="border-t border-gray-100 my-1"></div>
+
                 <div className="relative w-full">
                     <button
                         onClick={() => setShowAutoCutSettings(!showAutoCutSettings)}
