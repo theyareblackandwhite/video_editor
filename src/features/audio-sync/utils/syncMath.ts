@@ -59,12 +59,16 @@ export function extractTransientEnvelope(signal: Float32Array, sampleRate: numbe
 
     for (let i = 0; i < envLength; i++) {
         let sumSquared = 0;
+        let count = 0;
         const offset = i * samplesPerBlock;
         for (let j = 0; j < samplesPerBlock; j++) {
-            const currentSample = signal[offset + j];
+            const idx = offset + j;
+            if (idx >= signal.length) break;
+            const currentSample = signal[idx];
             sumSquared += currentSample * currentSample;
+            count++;
         }
-        envelope[i] = Math.sqrt(sumSquared / samplesPerBlock);
+        envelope[i] = count > 0 ? Math.sqrt(sumSquared / count) : 0;
     }
 
     // "Transients" - Detect spikes/onsets

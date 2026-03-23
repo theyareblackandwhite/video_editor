@@ -80,16 +80,18 @@ self.onmessage = (e: MessageEvent<SyncWorkerInput>) => {
         // Step 5 pt1: Eşik değeri (Threshold): Eğer belirli bir eşleşme yoksa bloğu dahil etme
         // Mode (Bucket) analizi için sadece belirli bir güvenilirliğe ulaşmış blokları kovalara al.
         // Z-score metriği kullanıyoruz. 3.0 z-score veya üzeri, istatistiksel olarak anlamlı bir "outlier" zirvesidir.
+        console.log(`[SyncBlock ${i}] offset: ${fineOffsetSec.toFixed(3)}s, Z: ${coarseConf.toFixed(2)}`);
         if (coarseConf >= 3.0) {
             offsets.push({ coarseOffsetSec, fineOffsetSec, confidence: coarseConf });
         }
     }
 
     // Step 5 pt2: Mode-based Validation
-    // Bucket offsets by 20ms windows to determine final offset
+    // Bucket offsets by 500ms windows to determine final offset
+    // Drift (sample rate mismatch) causes offsets to vary across blocks, so narrow buckets fail.
     const buckets = new Map<number, typeof offsets>();
     for (const off of offsets) {
-        const bucket = Math.round(off.fineOffsetSec * 50); // 50 buckets per sec
+        const bucket = Math.round(off.fineOffsetSec * 2); // 2 buckets per sec (500ms)
         if (!buckets.has(bucket)) buckets.set(bucket, []);
         buckets.get(bucket)!.push(off);
     }
