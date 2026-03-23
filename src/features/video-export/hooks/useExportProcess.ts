@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Command, Child } from '@tauri-apps/plugin-shell';
 import { save } from '@tauri-apps/plugin-dialog';
+import { writeTextFile, remove } from '@tauri-apps/plugin-fs';
 import { safeConvertFileSrc } from '../../../shared/utils/tauri';
+import { useAppStore } from '../../../app/store';
 import type { ExportConfig } from '../utils/ffmpegUtils';
 import { buildFFmpegCommand } from '../utils/ffmpegUtils';
 import type { MediaFile, CutSegment } from '../../../app/store/types';
@@ -13,6 +15,8 @@ interface UseExportProcessProps {
     audioFiles: MediaFile[];
     cuts: CutSegment[];
 }
+
+import { analyzeVideoForShorts } from '../utils/faceTracker';
 
 export type ExportPhase = 'config' | 'processing' | 'done';
 
@@ -52,6 +56,7 @@ export function useExportProcess({
         if (!masterVideo) return;
 
         let fakeProgressInterval: ReturnType<typeof setInterval> | null = null;
+        let cropFile: string | undefined = undefined;
 
         try {
             // 1. Pick where to save native file
@@ -66,6 +71,7 @@ export function useExportProcess({
 
             if (!selectedPath) {
                 // User cancelled
+                setPhase('config');
                 return;
             }
 
@@ -86,9 +92,36 @@ export function useExportProcess({
             const duration = tempVideo.duration;
 
             setProgressLabel('Video işleniyor...');
+            
+            // Check shorts config
+            const appState = useAppStore.getState();
+            const shortsConfig = appState.shortsConfig;
+            
+            if (shortsConfig && shortsConfig.isActive) {
+                if (shortsConfig.enableFaceTracker) {
+                    setProgressLabel('Yüz analizi yapılıyor...');
+                    try {
+                        const videoSrc = safeConvertFileSrc(masterVideo.path);
+                        const coords = await analyzeVideoForShorts(videoSrc, shortsConfig.startTime, shortsConfig.endTime, (p) => setProgress(p));
+                        if (coords && coords.length > 0) {
+                            cropFile = selectedPath + '.crop.txt';
+                            const lines = [];
+                            for (let i = 0; i < coords.length; i++) {
+                                const c = coords[i];
+                                const nextTime = i < coords.length - 1 ? coords[i+1].time : shortsConfig.endTime;
+                                lines.push(`${c.time.toFixed(3)}-${nextTime.toFixed(3)} [enter] crop x ${Math.round(c.x)}, crop y ${Math.round(c.y)}, crop w ${Math.round(c.w)}, crop h ${Math.round(c.h)};`);
+                            }
+                            await writeTextFile(cropFile, lines.join('\n'));
+                        }
+                    } catch (err) {
+                        console.error("Face analysis failed:", err);
+                    }
+                }
+                setProgressLabel('Kısa video (Shorts) oluşturuluyor...');
+            }
 
             // 3. Build command and execute
-            const args = buildFFmpegCommand(config, cuts, duration, videoFiles, audioFiles, masterVideo.id, selectedPath);
+            const args = buildFFmpegCommand(config, cuts, duration, videoFiles, audioFiles, masterVideo.id, selectedPath, cropFile, shortsConfig);
 
             const cmd = Command.create('ffmpeg', args);
             
@@ -161,6 +194,10 @@ export function useExportProcess({
         } finally {
             if (fakeProgressInterval) clearInterval(fakeProgressInterval);
             childProcessRef.current = null;
+            // Clean up crop file if we created one
+            if (cropFile) {
+                 remove(cropFile).catch(() => {});
+            }
         }
     }, [videoFiles, audioFiles, masterVideo, config, cuts]);
 

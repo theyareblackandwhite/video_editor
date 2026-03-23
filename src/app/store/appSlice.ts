@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand';
 import type { AppState } from './index';
-import type { Project, VideoTransform } from './types';
+import type { Project, VideoTransform, ShortsConfig } from './types';
 import { mediaStorage } from './mediaStorage';
 
 export interface AppSlice {
@@ -16,6 +16,8 @@ export interface AppSlice {
     renameProject: (id: string, newName: string) => void;
     updateProjectState: () => void;
     updateVideoTransform: (id: string, transform: Partial<VideoTransform>) => void;
+    shortsConfig?: ShortsConfig;
+    setShortsConfig: (config: Partial<ShortsConfig>) => void;
     hydrateProject: (projectId: string) => Promise<void>;
 }
 
@@ -25,6 +27,14 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
     currentStep: 1,
     setStep: (step) => {
         set({ currentStep: step });
+        get().updateProjectState();
+    },
+
+    shortsConfig: undefined,
+    setShortsConfig: (config) => {
+        set((state) => ({
+            shortsConfig: state.shortsConfig ? { ...state.shortsConfig, ...config } : { isActive: false, startTime: 0, endTime: 60, enableFaceTracker: true, ...config }
+        }));
         get().updateProjectState();
     },
 
@@ -44,6 +54,7 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
                 cuts: [],
                 layoutMode: 'crop',
                 transitionType: 'none',
+                shortsConfig: { isActive: false, startTime: 0, endTime: 60, enableFaceTracker: true }
             }
         };
 
@@ -56,6 +67,7 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
             cuts: [],
             layoutMode: 'crop',
             transitionType: 'none',
+            shortsConfig: { isActive: false, startTime: 0, endTime: 60, enableFaceTracker: true }
         }));
     },
 
@@ -93,6 +105,7 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
                         cuts: nextProject.state.cuts,
                         layoutMode: nextProject.state.layoutMode,
                         transitionType: nextProject.state.transitionType,
+                        shortsConfig: nextProject.state.shortsConfig,
                         videoFiles: [],
                         audioFiles: [],
                     };
@@ -104,6 +117,7 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
                         cuts: [],
                         layoutMode: 'crop',
                         transitionType: 'none',
+                        shortsConfig: undefined,
                         videoFiles: [],
                         audioFiles: [],
                     };
@@ -132,6 +146,7 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
                 currentStep: get().currentStep,
                 layoutMode: get().layoutMode,
                 transitionType: get().transitionType,
+                shortsConfig: (get() as any).shortsConfig,
             };
 
             const projectId = get().currentProjectId;
@@ -186,6 +201,7 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
             cuts: project.state.cuts || [],
             layoutMode: project.state.layoutMode || 'crop',
             transitionType: project.state.transitionType || 'none',
+            shortsConfig: project.state.shortsConfig,
             videoFiles: project.state.videoFiles || [],
             audioFiles: project.state.audioFiles || [],
         });

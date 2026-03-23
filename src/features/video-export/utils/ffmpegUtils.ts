@@ -1,4 +1,4 @@
-import type { CutSegment, LayoutMode, TransitionType, MediaFile } from '../../../app/store/types';
+import type { CutSegment, LayoutMode, TransitionType, MediaFile, ShortsConfig } from '../../../app/store/types';
 
 export interface ExportConfig {
     format: 'mp4' | 'webm';
@@ -9,6 +9,7 @@ export interface ExportConfig {
     layoutMode: LayoutMode;
     transitionType: TransitionType;
 }
+
 
 /**
  * Converts a list of "cuts" (regions to remove) into a list of "segments" (regions to keep).
@@ -346,7 +347,9 @@ export const buildFFmpegCommand = (
     videoFiles: MediaFile[],
     audioFiles: MediaFile[],
     masterVideoId: string,
-    outputPath: string
+    outputPath: string,
+    cropFile?: string,
+    shortsConfig?: ShortsConfig
 ): string[] => {
     const args: string[] = ['-y', '-nostdin'];
     const filterComplex: string[] = [];
@@ -381,18 +384,37 @@ export const buildFFmpegCommand = (
     // 4. Trimming and Transitions
     const { outV, outA } = applyTrimmingAndTransitions(config, segments, videoStreams[0], finalAudioSource, filterComplex);
 
-    // 5. Normalization
+    // 5. Normalization and Shorts Cropping
     let mappingAudio = `[${outA}]`;
     if (config.normalizeAudio) {
         mappingAudio = '[a_out]';
         filterComplex.push(`[${outA}]loudnorm=I=-16:TP=-1.5:LRA=11${mappingAudio}`);
     }
 
+    let mappingVideo = `[${outV}]`;
+    if (shortsConfig && shortsConfig.isActive) {
+        mappingVideo = '[v_shorts_out]';
+        const trimFilter = `trim=start=${shortsConfig.startTime}:end=${shortsConfig.endTime},setpts=PTS-STARTPTS`;
+        let cropFilter = `crop=w=ih*9/16:h=ih:x=(iw-ih*9/16)/2:y=0`;
+        
+        if (shortsConfig.enableFaceTracker && cropFile) {
+            // Apply dynamic Face Tracking crop using sendcmd
+            const safePath = cropFile.replace(/\\/g, '/').replace(/:/g, '\\\\:');
+            cropFilter = `sendcmd=f='${safePath}',crop=w=ih*9/16:h=ih:x=0:y=0`;
+        }
+
+        filterComplex.push(`[${outV}]${trimFilter},${cropFilter}${mappingVideo}`);
+        
+        const oldAudio = mappingAudio;
+        mappingAudio = '[a_shorts_out]';
+        filterComplex.push(`${oldAudio}atrim=start=${shortsConfig.startTime}:end=${shortsConfig.endTime},asetpts=PTS-STARTPTS${mappingAudio}`);
+    }
+
     // 6. Build final command
     if (filterComplex.length > 0) {
         args.push('-filter_complex', filterComplex.join(';'));
     }
-    args.push('-map', `[${outV}]`, '-map', mappingAudio);
+    args.push('-map', mappingVideo, '-map', mappingAudio);
     args.push(...getEncodingArguments(config));
     args.push(outputPath);
 

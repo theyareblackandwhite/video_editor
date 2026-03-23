@@ -3,6 +3,7 @@ import { MediaUpload } from './features/media-upload';
 import { AudioSync } from './features/audio-sync';
 import { TimelineEdit } from './features/timeline-edit';
 import { ThumbnailEditor } from './features/thumbnail-design';
+import { ShortsCreator } from './features/video-export/components/ShortsCreator';
 import { VideoExport } from './features/video-export';
 import { useAppStore } from './app/store';
 import { useThumbnailStore } from './store/thumbnailSlice';
@@ -16,7 +17,8 @@ const StepComponents: Record<number, React.FC<any>> = {
   2: AudioSync,
   3: TimelineEdit,
   4: ThumbnailEditor,
-  5: VideoExport,
+  5: ShortsCreator,
+  6: VideoExport,
 };
 
 function App() {
@@ -159,6 +161,12 @@ function App() {
             )}
             {currentStep === 5 && (
               <>
+                <h2 className="text-lg font-bold text-gray-900 leading-tight">Shorts Oluştur</h2>
+                <p className="text-[10px] text-gray-500 font-medium">Sosyal medya için kes</p>
+              </>
+            )}
+            {currentStep === 6 && (
+              <>
                 <h2 className="text-lg font-bold text-gray-900 leading-tight">Dışa Aktar</h2>
                 <p className="text-[10px] text-gray-500 font-medium">Videonuzu kaydedin</p>
               </>
@@ -220,16 +228,33 @@ function App() {
                   className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-lg
                     hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
                 >
-                  Dışa Aktar →
+                  Shorts Oluştur →
                 </button>
               </>
             )}
             {currentStep === 5 && (
+              <>
+                <button
+                  onClick={() => useAppStore.getState().setStep(4)}
+                  className="px-4 py-2 bg-gray-50 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-all font-semibold border border-gray-200 hidden sm:block"
+                >
+                  ← Geri
+                </button>
+                <button
+                  onClick={() => useAppStore.getState().setStep(6)}
+                  className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-lg
+                    hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
+                >
+                  Dışa Aktar →
+                </button>
+              </>
+            )}
+            {currentStep === 6 && (
               <button
-                onClick={() => useAppStore.getState().setStep(4)}
+                onClick={() => useAppStore.getState().setStep(5)}
                 className="px-4 py-2 bg-gray-50 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-all font-semibold border border-gray-200"
               >
-                ← Kapağa Dön
+                ← Geri
               </button>
             )}
           </div>

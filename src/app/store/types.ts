@@ -25,6 +25,13 @@ export interface MediaFile {
     transform?: VideoTransform;
 }
 
+export interface ShortsConfig {
+    isActive: boolean;
+    startTime: number;
+    endTime: number;
+    enableFaceTracker: boolean;
+}
+
 export interface ProjectState {
     currentStep: number;
     videoFiles: MediaFile[];
@@ -32,6 +39,7 @@ export interface ProjectState {
     cuts: CutSegment[];
     layoutMode: LayoutMode;
     transitionType: TransitionType;
+    shortsConfig?: ShortsConfig;
 }
 
 export interface Project {
