@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Command, Child } from '@tauri-apps/plugin-shell';
 import { save } from '@tauri-apps/plugin-dialog';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { safeConvertFileSrc } from '../../../shared/utils/tauri';
 import type { ExportConfig } from '../utils/ffmpegUtils';
 import { buildFFmpegCommand } from '../utils/ffmpegUtils';
 import type { MediaFile, CutSegment } from '../../../app/store/types';
@@ -78,7 +78,7 @@ export function useExportProcess({
 
             // 2. Get accurate duration quickly
             const tempVideo = document.createElement('video');
-            tempVideo.src = convertFileSrc(masterVideo.path);
+            tempVideo.src = safeConvertFileSrc(masterVideo.path);
             await new Promise((resolve, reject) => {
                 tempVideo.onloadedmetadata = resolve;
                 tempVideo.onerror = () => reject(new Error('Videonun metadataları okunamadı. Format desteklenmiyor olabilir.'));

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAppStore } from '../../../../../app/store';
 import { useThumbnailStore } from '../../../../../store/thumbnailSlice';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { safeConvertFileSrc } from '../../../../../shared/utils/tauri';
 import { captureVideoFrame } from '../../../../../shared/utils/captureFrame';
 
 interface VideoPreviewPanelProps {
@@ -14,7 +14,7 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({ externalVi
   const { setThumbnailBackground } = useThumbnailStore();
 
   const masterVideo = videoFiles.find(v => v.isMaster) || videoFiles[0];
-  const videoSrc = masterVideo ? convertFileSrc(masterVideo.path) : '';
+  const videoSrc = masterVideo ? safeConvertFileSrc(masterVideo.path) : '';
 
   const handleCapture = () => {
     const videoEl = externalVideoRef?.current || internalVideoRef.current;

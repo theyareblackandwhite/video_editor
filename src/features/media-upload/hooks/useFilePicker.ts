@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { stat } from '@tauri-apps/plugin-fs';
+import { isTauri } from '../../../shared/utils/tauri';
 import { validateFileSize, type FileSizeValidation } from '../../../shared/utils/fileValidation';
 import type { MediaFile } from '../../../app/store/types';
 
@@ -38,51 +39,70 @@ export const useFilePicker = ({ accept, type }: UseFilePickerOptions): UseFilePi
         setError(null);
         setWarning(null);
         console.log(`[useFilePicker] Picking ${type} file...`);
+        
         try {
-            const extensions = Object.values(accept).flat().map(ext => ext.replace('.', ''));
-            console.log(`[useFilePicker] Filters:`, extensions);
-            
-            const selected = await open({
-                multiple: false,
-                filters: [{
-                    name: type === 'video' ? 'Video Dosyaları' : 'Ses Dosyaları',
-                    extensions
-                }]
-            });
+            if (isTauri()) {
+                const extensions = Object.values(accept).flat().map(ext => ext.replace('.', ''));
+                const selected = await open({
+                    multiple: false,
+                    filters: [{
+                        name: type === 'video' ? 'Video Dosyaları' : 'Ses Dosyaları',
+                        extensions
+                    }]
+                });
 
-            console.log(`[useFilePicker] Selected file:`, selected);
+                if (selected) {
+                    const path = Array.isArray(selected) ? selected[0] : selected;
+                    if (typeof path !== 'string') return null;
 
-            if (selected) {
-                const path = Array.isArray(selected) ? selected[0] : selected;
-                
-                if (typeof path !== 'string') {
-                    console.error(`[useFilePicker] Invalid path:`, path);
-                    return null;
-                }
-
-                let size = 0;
-                try {
-                    const fileStat = await stat(path);
-                    size = fileStat.size || 0;
-                } catch (statErr) {
-                    console.warn(`[useFilePicker] Could not get file size:`, statErr);
-                }
-                
-                const name = path.split(/[/\\]/).pop() || 'unknown';
-                const ext = name.split('.').pop()?.toLowerCase() || '';
-                const mimeType = type === 'video' ? `video/${ext === 'mkv' ? 'x-matroska' : ext}` : `audio/${ext}`;
-
-                if (size > 0) {
-                    const validation = applyValidation(size);
-                    if (!validation.ok) {
-                        console.error(`[useFilePicker] Size validation failed:`, validation.error);
-                        return null;
+                    let size = 0;
+                    try {
+                        const fileStat = await stat(path);
+                        size = fileStat.size || 0;
+                    } catch (statErr) {
+                        console.warn(`[useFilePicker] Could not get file size:`, statErr);
                     }
-                }
+                    
+                    const name = path.split(/[/\\]/).pop() || 'unknown';
+                    const ext = name.split('.').pop()?.toLowerCase() || '';
+                    const mimeType = type === 'video' ? `video/${ext === 'mkv' ? 'x-matroska' : ext}` : `audio/${ext}`;
 
-                return { path, name, size, type: mimeType };
+                    if (size > 0) applyValidation(size);
+                    return { path, name, size, type: mimeType };
+                }
             } else {
-                console.log(`[useFilePicker] Selection cancelled by user.`);
+                // WEB FALLBACK
+                return new Promise((resolve) => {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    const acceptString = Object.keys(accept).join(',');
+                    input.accept = acceptString;
+                    
+                    input.onchange = (e: any) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                            const validation = applyValidation(file.size);
+                            if (!validation.ok) {
+                                resolve(null);
+                                return;
+                            }
+                            
+                            // Create a Blob URL so it can be played/fetched in the browser
+                            const path = URL.createObjectURL(file);
+                            resolve({
+                                path,
+                                name: file.name,
+                                size: file.size,
+                                type: file.type || (type === 'video' ? 'video/mp4' : 'audio/mpeg')
+                            });
+                        } else {
+                            resolve(null);
+                        }
+                    };
+                    
+                    input.oncancel = () => resolve(null);
+                    input.click();
+                });
             }
         } catch (err: unknown) {
             console.error(`[useFilePicker] Error during pick:`, err);

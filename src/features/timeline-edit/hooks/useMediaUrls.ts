@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { safeConvertFileSrc } from '../../../shared/utils/tauri';
 import type { MediaFile } from '../../../app/store/types';
 
 /**
@@ -9,10 +9,10 @@ export function useMediaUrls(videoFiles: MediaFile[], audioFiles: MediaFile[]) {
     return useMemo(() => {
         const urls: Record<string, string> = {};
         videoFiles.forEach(v => {
-            urls[v.id] = convertFileSrc(v.path);
+            urls[v.id] = safeConvertFileSrc(v.path);
         });
         audioFiles.forEach(a => {
-            urls[a.id] = convertFileSrc(a.path);
+            urls[a.id] = safeConvertFileSrc(a.path);
         });
         return urls;
     }, [videoFiles, audioFiles]);

@@ -2,6 +2,7 @@ import React from 'react';
 import { FileVideo, FileAudio, X, AlertCircle, Plus, Star } from 'lucide-react';
 import { useAppStore, type MediaFile } from '../../../app/store';
 import { useFilePicker } from '../hooks/useFilePicker';
+import { isTauri } from '../../../shared/utils/tauri';
 import { ask } from '@tauri-apps/plugin-dialog';
 
 const EmptyCard: React.FC<{
@@ -111,22 +112,32 @@ export const MediaUpload: React.FC = () => {
     });
 
     const handleRemoveVideo = async (id: string, name: string) => {
-        const confirmed = await ask(`${name} videosunu silmek istediğinize emin misiniz?`, {
-            title: 'Dosyayı Sil',
-            kind: 'warning',
-            okLabel: 'Sil',
-            cancelLabel: 'İptal'
-        });
+        let confirmed = false;
+        if (isTauri()) {
+            confirmed = await ask(`${name} videosunu silmek istediğinize emin misiniz?`, {
+                title: 'Dosyayı Sil',
+                kind: 'warning',
+                okLabel: 'Sil',
+                cancelLabel: 'İptal'
+            });
+        } else {
+            confirmed = window.confirm(`${name} videosunu silmek istediğinize emin misiniz?`);
+        }
         if (confirmed) removeVideoFile(id);
     };
 
     const handleRemoveAudio = async (id: string, name: string) => {
-        const confirmed = await ask(`${name} ses dosyasını silmek istediğinize emin misiniz?`, {
-            title: 'Dosyayı Sil',
-            kind: 'warning',
-            okLabel: 'Sil',
-            cancelLabel: 'İptal'
-        });
+        let confirmed = false;
+        if (isTauri()) {
+            confirmed = await ask(`${name} ses dosyasını silmek istediğinize emin misiniz?`, {
+                title: 'Dosyayı Sil',
+                kind: 'warning',
+                okLabel: 'Sil',
+                cancelLabel: 'İptal'
+            });
+        } else {
+            confirmed = window.confirm(`${name} ses dosyasını silmek istediğinize emin misiniz?`);
+        }
         if (confirmed) removeAudioFile(id);
     };
 

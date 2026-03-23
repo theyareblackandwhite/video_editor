@@ -2,7 +2,7 @@ import React from 'react';
 import { Check, FolderOpen } from 'lucide-react';
 import type { ExportConfig } from '../utils/ffmpegUtils';
 import { useAppStore } from '../../../app/store';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { safeConvertFileSrc } from '../../../shared/utils/tauri';
 import { open } from '@tauri-apps/plugin-shell';
 import { formatTime } from '../../../shared/utils';
 
@@ -47,7 +47,7 @@ export const ExportDone: React.FC<Props> = ({
                 {outputPath && (
                     <div className="bg-black rounded-xl overflow-hidden mb-6 aspect-video">
                         <video
-                            src={convertFileSrc(outputPath)}
+                            src={safeConvertFileSrc(outputPath)}
                             className="w-full h-full object-contain"
                             controls
                             playsInline
