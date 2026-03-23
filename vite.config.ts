@@ -6,29 +6,45 @@ import fs from 'fs';
 import path from 'path';
 
 // Automatically sync AI models to public/models for offline Tauri
-const modelsDir = path.resolve(__dirname, 'public', 'models');
-if (!fs.existsSync(modelsDir)) {
-  fs.mkdirSync(modelsDir, { recursive: true });
-}
+const syncModels = () => {
+  const modelsDir = path.resolve(__dirname, 'public', 'models');
+  if (!fs.existsSync(modelsDir)) {
+    fs.mkdirSync(modelsDir, { recursive: true });
+  }
 
-const wasmDist = path.resolve(__dirname, 'node_modules', 'onnxruntime-web', 'dist');
-if (fs.existsSync(wasmDist)) {
-  fs.readdirSync(wasmDist).forEach(file => {
-    const src = path.join(wasmDist, file);
-    if (fs.statSync(src).isFile()) {
-      fs.copyFileSync(src, path.join(modelsDir, file));
-    }
-  });
-}
+  const wasmDist = path.resolve(__dirname, 'node_modules', 'onnxruntime-web', 'dist');
+  if (fs.existsSync(wasmDist)) {
+    fs.readdirSync(wasmDist).forEach(file => {
+      const src = path.join(wasmDist, file);
+      const dest = path.join(modelsDir, file);
+      if (fs.statSync(src).isFile()) {
+        if (!fs.existsSync(dest) || fs.statSync(src).mtimeMs > fs.statSync(dest).mtimeMs) {
+          fs.copyFileSync(src, dest);
+        }
+      }
+    });
+  }
 
-const vadDist = path.resolve(__dirname, 'node_modules', '@ricky0123', 'vad-web', 'dist');
-if (fs.existsSync(vadDist)) {
-  ['silero_vad_legacy.onnx'].forEach(file => {
-    const src = path.join(vadDist, file);
-    if (fs.existsSync(src)) {
-      fs.copyFileSync(src, path.join(modelsDir, file));
-    }
-  });
+  const vadDist = path.resolve(__dirname, 'node_modules', '@ricky0123', 'vad-web', 'dist');
+  if (fs.existsSync(vadDist)) {
+    ['silero_vad_legacy.onnx'].forEach(file => {
+      const src = path.join(vadDist, file);
+      const dest = path.join(modelsDir, file);
+      if (fs.existsSync(src)) {
+        if (!fs.existsSync(dest) || fs.statSync(src).mtimeMs > fs.statSync(dest).mtimeMs) {
+          fs.copyFileSync(src, dest);
+        }
+      }
+    });
+  }
+};
+
+// Only run initial sync once per process if possible, or just optimize it
+if (process.env.NODE_ENV !== 'production' && !process.env.VITE_MODELS_SYNCED) {
+  syncModels();
+  process.env.VITE_MODELS_SYNCED = 'true';
+} else if (process.env.NODE_ENV === 'production') {
+  syncModels();
 }
 
 // https://vitejs.dev/config/

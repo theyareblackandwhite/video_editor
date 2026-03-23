@@ -11,10 +11,14 @@ import { MAX_DECODE_DURATION_S } from '../../../shared/utils/fileValidation';
 import { decodeToMono } from '../../../shared/utils/audio';
 
 export interface AutoSyncResult {
-    /** Offset in seconds. Positive = audio starts later than video. */
+    /** Final best offset in seconds. Positive = audio starts later than video. */
     offsetSeconds: number;
     /** Confidence score 0–1. Higher = more reliable. */
     confidence: number;
+    /** Fine-grained search best offset */
+    fineOffset?: number;
+    /** Coarse-grained search best offset */
+    coarseOffset?: number;
 }
 
 export const TARGET_SAMPLE_RATE = 8000; // Downsample to 8kHz for speed
@@ -153,7 +157,7 @@ function runCorrelationInWorker(
                 { type: 'module' }
             );
 
-            worker.onmessage = (e: MessageEvent<{ offsetSeconds: number; confidence: number }>) => {
+            worker.onmessage = (e: MessageEvent<AutoSyncResult>) => {
                 resolve(e.data);
                 worker.terminate();
             };
@@ -183,9 +187,12 @@ function runCorrelationInWorker(
 
             const { bestLag, confidence } = findBestLag(envVideo, envAudio, maxLagSamples);
 
+            const offset = bestLag / targetEnvelopeRate;
             resolve({
-                offsetSeconds: bestLag / targetEnvelopeRate,
+                offsetSeconds: offset,
                 confidence,
+                fineOffset: offset,
+                coarseOffset: offset,
             });
         }
     });
