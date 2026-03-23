@@ -1,5 +1,5 @@
 import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { safeConvertFileSrc } from '../../../shared/utils/tauri';
 import { CheckCircle } from 'lucide-react';
 import { useAppStore } from '../../../app/store';
 import { useAutoSync } from '../hooks/useAutoSync';
@@ -62,10 +62,10 @@ export const AudioSync: React.FC = () => {
     // Obtain object URLs for playback and waveform rendering
     useEffect(() => {
         if (masterVideo?.path) {
-            videoUrlRef.current = convertFileSrc(masterVideo.path);
+            videoUrlRef.current = safeConvertFileSrc(masterVideo.path);
         }
         if (selectedTarget?.path) {
-            audioUrlRef.current = convertFileSrc(selectedTarget.path);
+            audioUrlRef.current = safeConvertFileSrc(selectedTarget.path);
         }
     }, [masterVideo?.id, selectedTarget?.id]);
 

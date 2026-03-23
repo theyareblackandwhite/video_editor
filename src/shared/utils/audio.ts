@@ -1,6 +1,6 @@
 import { Command } from '@tauri-apps/plugin-shell';
 import { tempDir, join } from '@tauri-apps/api/path';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { isTauri, safeConvertFileSrc } from './tauri';
 import { mkdir, exists } from '@tauri-apps/plugin-fs';
 import { type CutSegment, type MediaFile } from '../../app/store/types';
 import { NonRealTimeVAD } from '@ricky0123/vad-web';
@@ -67,39 +67,78 @@ export async function decodeToMono(
     maxDuration?: number
 ): Promise<Float32Array> {
     console.log('Starting decodeToMono for:', filePath);
-    // 1. Extract raw wav via FFmpeg native shell
-    const wavPath = await extractAudioWav(filePath, sampleRate, maxDuration);
-    console.log('WAV extracted to:', wavPath);
-    
-    // 2. Fetch the extracted wav into browser memory
-    const assetUrl = convertFileSrc(wavPath);
-    console.log('Asset URL:', assetUrl);
     
     let arrayBuffer: ArrayBuffer;
-    try {
-        const response = await fetch(assetUrl);
-        if (!response.ok) {
-            throw new Error(`Fetch failed: ${response.status} ${response.statusText}`);
+
+    if (isTauri()) {
+        // 1. Extract raw wav via FFmpeg native shell
+        const wavPath = await extractAudioWav(filePath, sampleRate, maxDuration);
+        console.log('WAV extracted to:', wavPath);
+        
+        // 2. Fetch the extracted wav into browser memory
+        const assetUrl = safeConvertFileSrc(wavPath);
+        console.log('Asset URL:', assetUrl);
+        
+        try {
+            const response = await fetch(assetUrl);
+            if (!response.ok) {
+                throw new Error(`Fetch failed: ${response.status} ${response.statusText}`);
+            }
+            arrayBuffer = await response.arrayBuffer();
+        } catch (e) {
+            console.error('Failed to fetch extracted audio:', e);
+            throw new Error(`Ses dosyası yüklenemedi: ${e}`);
         }
-        arrayBuffer = await response.arrayBuffer();
-        console.log('ArrayBuffer loaded, size:', arrayBuffer.byteLength);
-    } catch (e) {
-        console.error('Failed to fetch extracted audio:', e);
-        throw new Error(`Ses dosyası yüklenemedi: ${e}`);
+    } else {
+        // Web fallback: fetch directly
+        console.warn('Web mode: decoding directly via browser AudioContext');
+        try {
+            const response = await fetch(filePath);
+            if (!response.ok) {
+                throw new Error(`Fetch failed: ${response.status} ${response.statusText}`);
+            }
+            arrayBuffer = await response.arrayBuffer();
+        } catch (e) {
+            console.error('Failed to fetch audio for web decode:', e);
+            throw new Error(`Ses dosyası yüklenemedi: ${e}`);
+        }
     }
     
-    // 3. Decode tiny ArrayBuffer
+    // 3. Decode into Float32Array
     try {
-        const tempCtx = new AudioContext(); // AudioContext is standard for decodeAudioData
-        const decoded = await tempCtx.decodeAudioData(arrayBuffer);
-        console.log('Audio decoded successfully, duration:', decoded.duration);
+        const tempCtx = new AudioContext();
+        let decoded = await tempCtx.decodeAudioData(arrayBuffer);
+        console.log('Audio decoded successfully, duration:', decoded.duration, 'SR:', decoded.sampleRate);
         
-        // WebKit/Safari requires the context to be closed if not used for playback
+        // Use OfflineAudioContext to resample if necessary
+        if (decoded.sampleRate !== sampleRate) {
+            console.log(`Resampling from ${decoded.sampleRate}Hz to ${sampleRate}Hz...`);
+            const offlineCtx = new OfflineAudioContext(
+                1, 
+                Math.ceil(decoded.duration * sampleRate), 
+                sampleRate
+            );
+            const source = offlineCtx.createBufferSource();
+            source.buffer = decoded;
+            source.connect(offlineCtx.destination);
+            source.start();
+            const resampled = await offlineCtx.startRendering();
+            decoded = resampled;
+        }
+
+        let channelData = decoded.getChannelData(0);
+
+        // Crop if maxDuration is set (primarily for web fallback where FFmpeg didn't crop)
+        if (!isTauri() && maxDuration && decoded.duration > maxDuration) {
+            const numSamples = Math.floor(maxDuration * sampleRate);
+            channelData = channelData.slice(0, numSamples);
+        }
+
         if (tempCtx.state !== 'closed') {
             try { await tempCtx.close(); } catch { /* ignore */ }
         }
         
-        return decoded.getChannelData(0);
+        return channelData;
     } catch (e) {
         console.error('Failed to decode audio data:', e);
         throw new Error(`Ses verisi çözülemedi. Dosya bozuk veya çok büyük olabilir: ${e}`);
@@ -124,37 +163,9 @@ export async function detectSilences(
 ): Promise<CutSegment[]> {
     const sampleRate = 16000;
     
-    // 1. Extract clean audio WAV from exactly the master video
-    // This fulfills the 'extract_clean_audio' goal precisely
-    console.log('Starting extractCleanAudio for VAD...');
-    const wavPath = await extractAudioWav(masterVideo.path, sampleRate);
-    console.log('Clean WAV extracted to:', wavPath);
-    
-    // 2. Fetch the extracted wav into browser memory
-    const assetUrl = convertFileSrc(wavPath);
-    let arrayBuffer: ArrayBuffer;
-    try {
-        const response = await fetch(assetUrl);
-        if (!response.ok) {
-            throw new Error(`Fetch failed: ${response.status} ${response.statusText}`);
-        }
-        arrayBuffer = await response.arrayBuffer();
-    } catch (e) {
-        console.error('Failed to fetch merged audio:', e);
-        throw new Error(`Birleştirilmiş ses dosyası yüklenemedi: ${e}`);
-    }
-    
-    // 3. Decode into Float32Array (Force 16kHz for Silero Model)
-    let samples: Float32Array;
-    try {
-        const tempCtx = new AudioContext({ sampleRate: 16000 });
-        const decoded = await tempCtx.decodeAudioData(arrayBuffer);
-        samples = decoded.getChannelData(0);
-        await tempCtx.close();
-    } catch (e) {
-        console.error('Failed to decode audio data:', e);
-        throw new Error(`Ses verisi çözülemedi. Dosya çok büyük olabilir: ${e}`);
-    }
+    // 1. Get samples via decodeToMono (which now handles web fallback)
+    const samples = await decodeToMono(masterVideo.path, sampleRate);
+
 
     // Initialize VAD model
     // The model URLs are stored in the public/models directory locally.
