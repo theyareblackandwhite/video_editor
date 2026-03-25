@@ -5,7 +5,7 @@ import type { CropCoordinate } from '../utils/faceTracker';
 import type { ShortsClip } from '../../../app/store/types';
 import { captureVideoFrame } from '../../../shared/utils/captureFrame';
 import { buildFFmpegCommand } from '../utils/ffmpegUtils';
-import { save } from '@tauri-apps/plugin-dialog';
+import { save, open } from '@tauri-apps/plugin-dialog';
 import { writeTextFile, remove } from '@tauri-apps/plugin-fs';
 import { Command } from '@tauri-apps/plugin-shell';
 import {
@@ -41,7 +41,7 @@ export const ShortsCreator: React.FC = () => {
     const cropBoxRef = useRef<HTMLDivElement>(null);
     const rafRef = useRef<number | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+
 
     // Cleanup
     useEffect(() => {
@@ -63,9 +63,38 @@ export const ShortsCreator: React.FC = () => {
         setEditingClipId(null);
     }, [shortsVideoUrl, setShortsConfig]);
 
-    const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) loadVideoFile(file);
+    const handleNativeUpload = async () => {
+        try {
+            // Check if we are in Tauri
+            if (!(window as any).__TAURI_INTERNALS__) {
+                alert('Bu özellik yalnızca masaüstü uygulamasında çalışır.');
+                return;
+            }
+
+            const selected = await open({
+                multiple: false,
+                filters: [{ name: 'Video', extensions: ['mp4', 'mov', 'avi', 'mkv'] }]
+            });
+
+            if (selected && !Array.isArray(selected)) {
+                // In Tauri 2.0, selected is the path (string)
+                const path = selected;
+                // For the preview, we can use convertFileSrc
+                const { convertFileSrc } = await import('@tauri-apps/api/core');
+                const assetUrl = convertFileSrc(path);
+
+                // Create a dummy File object for local state compatibility
+                const file = { name: path.split('/').pop() || 'video.mp4', path } as any;
+                
+                setShortsVideoFile(file);
+                setShortsVideoUrl(assetUrl);
+                setStatus('idle');
+                setCoordinates([]);
+            }
+        } catch (err) {
+            console.error('File selection failed:', err);
+            alert('Dosya seçimi başarısız oldu: ' + err);
+        }
     };
 
     const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
@@ -174,6 +203,13 @@ export const ShortsCreator: React.FC = () => {
     const handleExportClip = async (clip: ShortsClip) => {
         if (!shortsVideoUrl) return;
 
+        // Platform Check
+        const isTauri = !!(window as any).__TAURI_INTERNALS__;
+        if (!isTauri) {
+            alert('Dışa aktarım işlemi sadece masaüstü uygulamasında desteklenmektedir.');
+            return;
+        }
+
         const videoFiles = useAppStore.getState().videoFiles;
         const layoutMode = useAppStore.getState().layoutMode;
         const transitionType = useAppStore.getState().transitionType;
@@ -218,6 +254,7 @@ export const ShortsCreator: React.FC = () => {
 
             const masterVideoId = videoFiles.find(v => v.isMaster)?.id || (videoFiles.length > 0 ? videoFiles[0].id : 'shorts-master');
 
+            // Use system path if available, otherwise fallback to url (which will likely fail FFmpeg if it's a blob)
             const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
             const dummyMaster: any = { id: masterVideoId, path: nativePath, name: 'shorts.mp4', isMaster: true };
 
@@ -234,8 +271,10 @@ export const ShortsCreator: React.FC = () => {
                 clip
             );
 
+            // Create command
             const cmd = Command.create('ffmpeg', args);
-
+            
+            // Execute with stderr tracking
             cmd.stderr.on('data', (line) => {
                 const match = line.match(/time=\s*(\d+):(\d+):(\d+\.\d+)/);
                 if (match) {
@@ -249,13 +288,21 @@ export const ShortsCreator: React.FC = () => {
                 }
             });
 
+            // Log output for debugging
+            cmd.stdout.on('data', line => console.log('FFmpeg stdout:', line));
+
             const result = await cmd.execute();
             if (result.code !== 0) throw new Error(`FFmpeg failed: ${result.stderr}`);
 
             alert('Short başarıyla dışa aktarıldı!');
         } catch (err) {
             console.error('Export failed:', err);
-            alert('Dışa aktarım hatası: ' + (err instanceof Error ? err.message : String(err)));
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes('invoke')) {
+                alert('Tauri IPC hatası: Uygulamanın güncel olduğundan ve masaüstü modunda çalıştığından emin olun.');
+            } else {
+                alert('Dışa aktarım hatası: ' + msg);
+            }
         } finally {
             setExportingClipId(null);
             setExportProgress(0);
@@ -343,7 +390,7 @@ export const ShortsCreator: React.FC = () => {
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={handleNativeUpload}
                     className={`
                         w-full max-w-2xl aspect-video rounded-3xl border-2 border-dashed flex flex-col items-center justify-center gap-6 transition-all duration-500 group relative overflow-hidden cursor-pointer
                         ${isDragging ? 'border-purple-500 bg-purple-500/10 scale-[1.02]' : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.04] hover:border-purple-500/30'}
@@ -360,7 +407,6 @@ export const ShortsCreator: React.FC = () => {
                     <div className="px-8 py-3 bg-white text-black rounded-xl font-bold hover:scale-105 transition-transform z-10">
                         Video Seç
                     </div>
-                    <input ref={fileInputRef} type="file" accept="video/*" className="hidden" onChange={handleFileInput} />
                 </div>
             </div>
         );
