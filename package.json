@@ -7,8 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "lint:strict": "eslint . --max-warnings 0",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:harness": "vitest run --dir src/test/harness",
     "test:watch": "vitest",
     "tauri": "tauri"
   },
