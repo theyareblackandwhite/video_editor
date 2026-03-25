@@ -201,14 +201,45 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
         const project = projects.find(p => p.id === projectId);
         if (!project) return;
 
-        // Restore all project state synchronously
+        console.log(`[appSlice] Hydrating project ${projectId} with binary restoration...`);
+
+        // Create a copy of storage metadata while restoring actual File objects from IndexedDB
+        const restoredVideoFiles: typeof project.state.videoFiles = [];
+        for (const vf of project.state.videoFiles) {
+            const file = await mediaStorage.getMediaFile(vf.id);
+            if (file) {
+                // If we restored a file, we MUST regenerate the blob URL because the old one is revoked/invalid
+                const path = URL.createObjectURL(file);
+                restoredVideoFiles.push({ ...vf, file, path });
+            } else {
+                console.warn(`[appSlice] Could not restore video file content for ${vf.id}`);
+                restoredVideoFiles.push(vf);
+            }
+        }
+
+        const restoredAudioFiles: typeof project.state.audioFiles = [];
+        for (const af of project.state.audioFiles) {
+            const file = await mediaStorage.getMediaFile(af.id);
+            if (file) {
+                const path = URL.createObjectURL(file);
+                restoredAudioFiles.push({ ...af, file, path });
+            } else {
+                console.warn(`[appSlice] Could not restore audio file content for ${af.id}`);
+                restoredAudioFiles.push(af);
+            }
+        }
+
+        // Restore all project state
         set({
             currentStep: project.state.currentStep || 1,
             cuts: project.state.cuts || [],
             layoutMode: project.state.layoutMode || 'crop',
             transitionType: project.state.transitionType || 'none',
-            videoFiles: project.state.videoFiles || [],
-            audioFiles: project.state.audioFiles || [],
+            videoFiles: restoredVideoFiles,
+            audioFiles: restoredAudioFiles,
+            shortsConfig: project.state.shortsConfig,
         });
+
+        console.log(`[appSlice] Project ${projectId} hydrated successfully.`);
     }
 });

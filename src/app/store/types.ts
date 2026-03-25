@@ -15,10 +15,11 @@ export interface VideoTransform {
 
 export interface MediaFile {
     id: string;
-    path: string; // Native absolute path for desktop
+    path: string; // Native absolute path for desktop or blob URL for web
     name: string;
     type: string;
     size: number;
+    file?: File; // In-memory reference to the file object (web)
     syncOffset: number; // Offset relative to master
     isMaster?: boolean;
     isMuted?: boolean;

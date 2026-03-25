@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand';
 import type { AppState } from '../../../app/store';
 import type { MediaFile } from '../../../app/store/types';
+import { mediaStorage } from '../../../app/store/mediaStorage';
 
 export interface MediaSlice {
     videoFiles: MediaFile[];
@@ -20,6 +21,13 @@ export const createMediaSlice: StateCreator<AppState, [], [], MediaSlice> = (set
 
     addVideoFile: (fileInfo) => {
         const id = crypto.randomUUID();
+        const { file } = fileInfo;
+        
+        // Persist to IndexedDB if file is present (web mode)
+        if (file) {
+            mediaStorage.saveMediaFile(id, file).catch(err => console.error("Failed to save video file:", err));
+        }
+
         set((state) => {
             const newFile: MediaFile = { ...fileInfo, id, syncOffset: 0, isMaster: state.videoFiles.length === 0 };
             return { videoFiles: [...state.videoFiles, newFile] };
@@ -48,6 +56,13 @@ export const createMediaSlice: StateCreator<AppState, [], [], MediaSlice> = (set
 
     addAudioFile: (fileInfo) => {
         const id = crypto.randomUUID();
+        const { file } = fileInfo;
+        
+        // Persist to IndexedDB if file is present (web mode)
+        if (file) {
+            mediaStorage.saveMediaFile(id, file).catch(err => console.error("Failed to save audio file:", err));
+        }
+
         set((state) => {
             return { audioFiles: [...state.audioFiles, { ...fileInfo, id, syncOffset: 0 }] };
         });

@@ -93,7 +93,8 @@ export const useFilePicker = ({ accept, type }: UseFilePickerOptions): UseFilePi
                                 path,
                                 name: file.name,
                                 size: file.size,
-                                type: file.type || (type === 'video' ? 'video/mp4' : 'audio/mpeg')
+                                type: file.type || (type === 'video' ? 'video/mp4' : 'audio/mpeg'),
+                                file // Return the actual file object for persistence
                             });
                         } else {
                             resolve(null);
