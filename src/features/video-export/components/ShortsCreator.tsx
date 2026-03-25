@@ -2,15 +2,31 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useAppStore } from '../../../app/store';
 import { analyzeVideoForShorts } from '../utils/faceTracker';
 import type { CropCoordinate } from '../utils/faceTracker';
-import { Loader2, Play, Pause, Sparkles, Settings, Smartphone, Upload, X, Film } from 'lucide-react';
+import type { ShortsClip } from '../../../app/store/types';
+import { captureVideoFrame } from '../../../shared/utils/captureFrame';
+import { buildFFmpegCommand } from '../utils/ffmpegUtils';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeTextFile, remove } from '@tauri-apps/plugin-fs';
+import { Command } from '@tauri-apps/plugin-shell';
+import {
+    Loader2, Play, Pause, Sparkles, Settings, Smartphone,
+    Upload, X, Film, Plus, Trash2, Edit2, Check, Download,
+    RotateCcw
+} from 'lucide-react';
 
 export const ShortsCreator: React.FC = () => {
     const { shortsConfig, setShortsConfig } = useAppStore();
-    const config = shortsConfig || { isActive: false, startTime: 0, endTime: 60, enableFaceTracker: true };
+    const clips = shortsConfig?.clips || [];
 
-    // Standalone video for Shorts (independent from main project)
+    // Standalone video for Shorts
     const [shortsVideoFile, setShortsVideoFile] = useState<File | null>(null);
     const [shortsVideoUrl, setShortsVideoUrl] = useState<string>('');
+
+    // Local editor state
+    const [startTime, setStartTime] = useState(0);
+    const [endTime, setEndTime] = useState(60);
+    const [enableFaceTracker, setEnableFaceTracker] = useState(true);
+    const [editingClipId, setEditingClipId] = useState<string | null>(null);
 
     const [status, setStatus] = useState<'idle' | 'analyzing' | 'preview'>('idle');
     const [progress, setProgress] = useState(0);
@@ -18,13 +34,16 @@ export const ShortsCreator: React.FC = () => {
     const [isDragging, setIsDragging] = useState(false);
 
     const [isPlaying, setIsPlaying] = useState(false);
+    const [exportingClipId, setExportingClipId] = useState<string | null>(null);
+    const [exportProgress, setExportProgress] = useState(0);
+
     const videoRef = useRef<HTMLVideoElement>(null);
     const cropBoxRef = useRef<HTMLDivElement>(null);
     const rafRef = useRef<number | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Cleanup blob URL on unmount or when file changes
+    // Cleanup
     useEffect(() => {
         return () => {
             if (shortsVideoUrl) URL.revokeObjectURL(shortsVideoUrl);
@@ -38,20 +57,18 @@ export const ShortsCreator: React.FC = () => {
         const url = URL.createObjectURL(file);
         setShortsVideoFile(file);
         setShortsVideoUrl(url);
-        setShortsConfig({ isActive: false, startTime: 0, endTime: 60, enableFaceTracker: config.enableFaceTracker });
+        setShortsConfig({ isActive: true, clips: [] });
         setStatus('idle');
         setCoordinates([]);
-    }, [shortsVideoUrl, config.enableFaceTracker, setShortsConfig]);
+        setEditingClipId(null);
+    }, [shortsVideoUrl, setShortsConfig]);
 
     const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) loadVideoFile(file);
     };
 
-    const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(true);
-    };
+    const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
     const handleDragLeave = () => setIsDragging(false);
     const handleDrop = (e: React.DragEvent) => {
         e.preventDefault();
@@ -66,8 +83,8 @@ export const ShortsCreator: React.FC = () => {
         const handlePlay = () => setIsPlaying(true);
         const handlePause = () => setIsPlaying(false);
         const handleTimeUpdate = () => {
-            if (video.currentTime > config.endTime) {
-                video.currentTime = config.startTime;
+            if (video.currentTime > endTime) {
+                video.currentTime = startTime;
             }
         };
         video.addEventListener('play', handlePlay);
@@ -78,11 +95,10 @@ export const ShortsCreator: React.FC = () => {
             video.removeEventListener('pause', handlePause);
             video.removeEventListener('timeupdate', handleTimeUpdate);
         };
-    }, [config.startTime, config.endTime]);
+    }, [startTime, endTime]);
 
     // Crop box rendering
     useEffect(() => {
-        if (!config.isActive) return;
         const updateCropBox = () => {
             const video = videoRef.current;
             const box = cropBoxRef.current;
@@ -99,7 +115,7 @@ export const ShortsCreator: React.FC = () => {
                     const offsetY = (displayH - drawH) / 2;
                     const time = video.currentTime;
                     let targetCrop = { x: 0, y: 0, w: Math.round((videoH * 9) / 16), h: videoH };
-                    if (config.enableFaceTracker && coordinates.length > 0) {
+                    if (enableFaceTracker && coordinates.length > 0) {
                         let closest = coordinates[0];
                         let minDiff = Infinity;
                         for (const c of coordinates) {
@@ -125,7 +141,7 @@ export const ShortsCreator: React.FC = () => {
         };
         rafRef.current = requestAnimationFrame(updateCropBox);
         return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-    }, [config.isActive, config.enableFaceTracker, coordinates]);
+    }, [enableFaceTracker, coordinates]);
 
     const runAnalysis = async () => {
         if (!shortsVideoUrl) return;
@@ -136,15 +152,15 @@ export const ShortsCreator: React.FC = () => {
         try {
             const coords = await analyzeVideoForShorts(
                 shortsVideoUrl,
-                config.startTime,
-                config.endTime,
+                startTime,
+                endTime,
                 (p) => setProgress(p),
                 abortControllerRef.current.signal
             );
             setCoordinates(coords);
             setStatus('preview');
             if (videoRef.current) {
-                videoRef.current.currentTime = config.startTime;
+                videoRef.current.currentTime = startTime;
                 videoRef.current.play().catch(console.error);
             }
         } catch (err) {
@@ -155,10 +171,159 @@ export const ShortsCreator: React.FC = () => {
         }
     };
 
+    const handleExportClip = async (clip: ShortsClip) => {
+        if (!shortsVideoUrl) return;
+
+        const videoFiles = useAppStore.getState().videoFiles;
+        const layoutMode = useAppStore.getState().layoutMode;
+        const transitionType = useAppStore.getState().transitionType;
+        const borderRadius = useAppStore.getState().borderRadius;
+
+        const config = {
+            format: 'mp4' as const,
+            quality: 'high' as const,
+            includeAudio: true,
+            applyCuts: false,
+            normalizeAudio: false,
+            layoutMode,
+            transitionType,
+            borderRadius,
+        };
+
+        let cropFile: string | undefined = undefined;
+
+        try {
+            const selectedPath = await save({
+                filters: [{ name: 'Video', extensions: ['mp4'] }],
+                defaultPath: `short_${clip.id.slice(0, 4)}.mp4`
+            });
+
+            if (!selectedPath) return;
+
+            setExportingClipId(clip.id);
+            setExportProgress(0);
+
+            // Face Tracking analysis if enabled for this specific clip
+            if (clip.enableFaceTracker) {
+                const coords = await analyzeVideoForShorts(shortsVideoUrl, clip.startTime, clip.endTime, (p) => setExportProgress(p * 0.5));
+                if (coords && coords.length > 0) {
+                    cropFile = selectedPath + '.crop.txt';
+                    const lines = coords.map((c, i) => {
+                        const nextTime = i < coords.length - 1 ? coords[i + 1].time : clip.endTime;
+                        return `${c.time.toFixed(3)}-${nextTime.toFixed(3)} [enter] crop x ${Math.round(c.x)}, crop y ${Math.round(c.y)}, crop w ${Math.round(c.w)}, crop h ${Math.round(c.h)};`;
+                    });
+                    await writeTextFile(cropFile, lines.join('\n'));
+                }
+            }
+
+            const masterVideoId = videoFiles.find(v => v.isMaster)?.id || (videoFiles.length > 0 ? videoFiles[0].id : 'shorts-master');
+
+            const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
+            const dummyMaster: any = { id: masterVideoId, path: nativePath, name: 'shorts.mp4', isMaster: true };
+
+            const args = buildFFmpegCommand(
+                config,
+                [],
+                videoRef.current?.duration || 0,
+                [dummyMaster],
+                [],
+                masterVideoId,
+                selectedPath,
+                cropFile,
+                undefined,
+                clip
+            );
+
+            const cmd = Command.create('ffmpeg', args);
+
+            cmd.stderr.on('data', (line) => {
+                const match = line.match(/time=\s*(\d+):(\d+):(\d+\.\d+)/);
+                if (match) {
+                    const h = parseInt(match[1], 10);
+                    const m = parseInt(match[2], 10);
+                    const s = parseFloat(match[3]);
+                    const timeInSeconds = h * 3600 + m * 60 + s;
+                    const duration = clip.endTime - clip.startTime;
+                    const p = Math.max(0.01, Math.min(1, timeInSeconds / duration));
+                    setExportProgress(clip.enableFaceTracker ? 0.5 + p * 0.5 : p);
+                }
+            });
+
+            const result = await cmd.execute();
+            if (result.code !== 0) throw new Error(`FFmpeg failed: ${result.stderr}`);
+
+            alert('Short başarıyla dışa aktarıldı!');
+        } catch (err) {
+            console.error('Export failed:', err);
+            alert('Dışa aktarım hatası: ' + (err instanceof Error ? err.message : String(err)));
+        } finally {
+            setExportingClipId(null);
+            setExportProgress(0);
+            if (cropFile) await remove(cropFile).catch(() => { });
+        }
+    };
+
     const togglePlay = () => {
-        if (!videoRef.current) return;
-        if (isPlaying) videoRef.current.pause();
-        else videoRef.current.play();
+        const video = videoRef.current;
+        if (!video) return;
+        if (video.paused) {
+            video.play().catch(console.error);
+        } else {
+            video.pause();
+        }
+    };
+
+    const addOrUpdateClip = () => {
+        const video = videoRef.current;
+        let thumbnail = '';
+        if (video) {
+            try {
+                thumbnail = captureVideoFrame(video);
+            } catch (e) {
+                console.error("Thumbnail capture failed", e);
+            }
+        }
+
+        const newClip: ShortsClip = {
+            id: editingClipId || crypto.randomUUID(),
+            startTime,
+            endTime,
+            enableFaceTracker,
+            thumbnail
+        };
+
+        if (editingClipId) {
+            setShortsConfig({
+                clips: clips.map(c => c.id === editingClipId ? newClip : c)
+            });
+            setEditingClipId(null);
+        } else {
+            setShortsConfig({
+                clips: [...clips, newClip]
+            });
+        }
+    };
+
+    const deleteClip = (id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setShortsConfig({
+            clips: clips.filter(c => c.id !== id)
+        });
+        if (editingClipId === id) {
+            setEditingClipId(null);
+        }
+    };
+
+    const editClip = (clip: ShortsClip) => {
+        setStartTime(clip.startTime);
+        setEndTime(clip.endTime);
+        setEnableFaceTracker(clip.enableFaceTracker);
+        setEditingClipId(clip.id);
+        setStatus('idle');
+        setCoordinates([]);
+        if (videoRef.current) {
+            videoRef.current.currentTime = clip.startTime;
+        }
     };
 
     const removeVideo = () => {
@@ -166,250 +331,310 @@ export const ShortsCreator: React.FC = () => {
         if (shortsVideoUrl) URL.revokeObjectURL(shortsVideoUrl);
         setShortsVideoFile(null);
         setShortsVideoUrl('');
-        setShortsConfig({ isActive: false });
+        setShortsConfig({ isActive: false, clips: [] });
         setStatus('idle');
         setCoordinates([]);
     };
 
-    // ─── Upload screen ───────────────────────────────────────────────────────────
     if (!shortsVideoFile) {
         return (
-            <div className="max-w-4xl mx-auto px-4 py-12 flex flex-col items-center">
-                <div className="w-24 h-24 bg-indigo-50 text-indigo-500 rounded-full flex items-center justify-center mb-6">
-                    <Smartphone size={48} />
-                </div>
-                <h2 className="text-3xl font-bold text-gray-900 mb-3 text-center">Shorts & Reels Oluşturucu</h2>
-                <p className="text-gray-500 text-base mb-10 max-w-xl text-center">
-                    Herhangi bir videoyu yükleyin ve sosyal medya için dikey (9:16) formata dönüştürün. Yapay zeka destekli yüz takibi ile konuşmacı her zaman merkezde kalır.
-                </p>
-
-                {/* Drop zone */}
+            <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[#0f0f0f]">
                 <div
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
                     onClick={() => fileInputRef.current?.click()}
                     className={`
-                        w-full max-w-xl border-2 border-dashed rounded-2xl p-12 flex flex-col items-center gap-4 cursor-pointer transition-all
-                        ${isDragging
-                            ? 'border-indigo-500 bg-indigo-50 scale-[1.02]'
-                            : 'border-gray-300 bg-gray-50 hover:border-indigo-400 hover:bg-indigo-50/50'
-                        }
+                        w-full max-w-2xl aspect-video rounded-3xl border-2 border-dashed flex flex-col items-center justify-center gap-6 transition-all duration-500 group relative overflow-hidden cursor-pointer
+                        ${isDragging ? 'border-purple-500 bg-purple-500/10 scale-[1.02]' : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.04] hover:border-purple-500/30'}
                     `}
                 >
-                    <div className={`w-16 h-16 rounded-full flex items-center justify-center transition-colors ${isDragging ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-400'}`}>
-                        <Upload size={32} />
+                    <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-pink-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <div className="w-20 h-20 rounded-2xl bg-white/5 flex items-center justify-center group-hover:scale-110 group-hover:bg-purple-500/10 transition-all duration-500">
+                        <Upload className="w-10 h-10 text-white/20 group-hover:text-purple-400" />
                     </div>
-                    <div className="text-center">
-                        <p className="font-semibold text-gray-700 text-lg">Video dosyasını sürükleyin veya seçin</p>
-                        <p className="text-gray-400 text-sm mt-1">MP4, MOV, AVI, MKV desteklenir</p>
+                    <div className="text-center space-y-2 relative z-10">
+                        <h3 className="text-2xl font-semibold text-white/90">Shorts & Reels Oluşturucu</h3>
+                        <p className="text-white/40 max-w-sm">Herhangi bir videoyu sosyal medya için dikey (9:16) formata dönüştürün.</p>
                     </div>
-                    <div className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/25 hover:shadow-xl transition-all text-sm">
-                        Dosya Seç
+                    <div className="px-8 py-3 bg-white text-black rounded-xl font-bold hover:scale-105 transition-transform z-10">
+                        Video Seç
                     </div>
+                    <input ref={fileInputRef} type="file" accept="video/*" className="hidden" onChange={handleFileInput} />
                 </div>
-                <input ref={fileInputRef} type="file" accept="video/*" className="hidden" onChange={handleFileInput} />
             </div>
         );
     }
 
-    // ─── Activate Shorts screen ──────────────────────────────────────────────────
-    if (!config.isActive) {
-        return (
-            <div className="max-w-4xl mx-auto px-4 py-12 flex flex-col items-center text-center">
-                {/* Video preview card */}
-                <div className="w-full max-w-xl bg-gray-900 rounded-2xl overflow-hidden mb-8 shadow-xl relative group">
-                    <video
-                        src={shortsVideoUrl}
-                        className="w-full max-h-64 object-contain"
-                        controls
-                        playsInline
-                    />
+    return (
+        <div className="flex flex-col h-[calc(100vh-180px)] bg-gray-50 text-gray-900 overflow-hidden font-sans">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-white">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center shadow-lg shadow-purple-500/20">
+                        <Smartphone className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                        <h2 className="text-xl font-bold text-gray-900">Shorts Creator</h2>
+                        <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Multi-Clip Management</p>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-4">
                     <button
                         onClick={removeVideo}
-                        className="absolute top-3 right-3 bg-black/60 text-white p-1.5 rounded-full hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100"
-                        title="Videoyu kaldır"
+                        className="p-2 hover:bg-gray-100 rounded-full transition-colors group"
+                        title="Videoyu Kaldır"
                     >
-                        <X size={16} />
+                        <RotateCcw className="w-5 h-5 text-gray-400 group-hover:text-gray-900 transition-colors" />
                     </button>
-                    <div className="absolute bottom-3 left-3 flex items-center gap-2 bg-black/60 text-white text-xs px-3 py-1.5 rounded-full backdrop-blur-md">
-                        <Film size={12} />
-                        <span className="truncate max-w-[200px]">{shortsVideoFile.name}</span>
-                    </div>
+                    <button
+                        onClick={removeVideo}
+                        className="p-2 hover:bg-gray-100 rounded-full transition-colors group"
+                        title="Kapat"
+                    >
+                        <X className="w-5 h-5 text-gray-400 group-hover:text-red-500 transition-colors" />
+                    </button>
                 </div>
-
-                <div className="w-24 h-24 bg-indigo-50 text-indigo-500 rounded-full flex items-center justify-center mb-6">
-                    <Smartphone size={48} />
-                </div>
-                <h2 className="text-3xl font-bold text-gray-900 mb-4">Shorts Formatını Aktifleştir</h2>
-                <p className="text-gray-500 text-lg mb-8 max-w-xl">
-                    Videonuzu sosyal medya için dikey (9:16) formata dönüştürün. Yapay zeka destekli yüz takibi ile konuşmacı her zaman merkezde kalsın.
-                </p>
-                <button
-                    onClick={() => setShortsConfig({ isActive: true })}
-                    className="px-8 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-indigo-500/30 hover:shadow-xl hover:scale-105 transition-all"
-                >
-                    Shorts Formatını Aktifleştir
-                </button>
-                <button
-                    onClick={removeVideo}
-                    className="mt-6 text-gray-400 hover:text-gray-600 font-medium"
-                >
-                    Farklı video seç
-                </button>
-            </div>
-        );
-    }
-
-    // ─── Main editor ─────────────────────────────────────────────────────────────
-    return (
-        <div className="max-w-7xl mx-auto px-4 h-full flex flex-col xl:flex-row gap-6">
-
-            {/* Left side: Preview */}
-            <div className="flex-1 flex flex-col min-h-[400px] xl:min-h-0 bg-black rounded-2xl overflow-hidden relative group shadow-lg">
-                <video
-                    ref={videoRef}
-                    src={shortsVideoUrl}
-                    className="absolute inset-0 w-full h-full object-contain"
-                    playsInline
-                    onClick={togglePlay}
-                    onLoadedMetadata={(e) => {
-                        const duration = e.currentTarget.duration;
-                        if (config.endTime > duration) {
-                            setShortsConfig({ endTime: duration });
-                        }
-                        e.currentTarget.currentTime = config.startTime;
-                    }}
-                />
-
-                {/* Crop overlay */}
-                <div
-                    ref={cropBoxRef}
-                    className="absolute border-4 border-indigo-500 bg-indigo-500/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.6)] pointer-events-none transition-all duration-75"
-                />
-
-                {status === 'analyzing' && (
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center z-10 text-white">
-                        <Loader2 size={48} className="animate-spin mb-4 text-indigo-400" />
-                        <h3 className="text-lg font-bold mb-2">Video Analiz Ediliyor...</h3>
-                        <div className="w-64 bg-gray-700 rounded-full h-2 overflow-hidden mb-2">
-                            <div className="bg-indigo-500 h-full transition-all duration-300" style={{ width: `${progress * 100}%` }} />
-                        </div>
-                        <span className="text-sm">{Math.round(progress * 100)}%</span>
-                    </div>
-                )}
-
-                <button
-                    onClick={togglePlay}
-                    className="absolute bottom-4 left-4 bg-black/60 text-white p-3 rounded-full hover:bg-black/80 transition-colors backdrop-blur-md z-20"
-                >
-                    {isPlaying ? <Pause size={20} /> : <Play size={20} />}
-                </button>
-                <button
-                    onClick={() => { if (videoRef.current) videoRef.current.currentTime = config.startTime; }}
-                    className="absolute bottom-4 left-16 bg-black/60 text-white px-3 py-2 rounded-lg text-sm hover:bg-black/80 transition-colors backdrop-blur-md z-20"
-                >
-                    Başa Dön
-                </button>
-
-                {/* File info */}
-                <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/60 text-white text-xs px-3 py-1.5 rounded-full backdrop-blur-md z-20">
-                    <Film size={12} />
-                    <span className="truncate max-w-[180px]">{shortsVideoFile.name}</span>
-                </div>
-                <button
-                    onClick={removeVideo}
-                    className="absolute top-3 right-3 bg-black/60 text-white p-1.5 rounded-full hover:bg-red-600 transition-colors z-20"
-                    title="Farklı video seç"
-                >
-                    <X size={16} />
-                </button>
             </div>
 
-            {/* Right side: Controls */}
-            <div className="w-full xl:w-96 flex flex-col gap-6 shrink-0">
-                <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-100 flex flex-col gap-6">
-                    <div className="flex justify-between items-center">
-                        <h3 className="font-bold text-gray-800 text-lg flex items-center gap-2">
-                            <Smartphone size={20} className="text-indigo-600" /> Shorts Ayarları
-                        </h3>
-                        <button
-                            onClick={() => {
-                                if (abortControllerRef.current) abortControllerRef.current.abort();
-                                setShortsConfig({ isActive: false });
-                                setStatus('idle');
-                            }}
-                            className="text-sm text-red-500 hover:text-red-700 font-medium"
-                        >
-                            Kapat
-                        </button>
+            <div className="flex-1 flex flex-col min-h-0 relative">
+                <div className="flex-1 flex min-h-0">
+                    {/* Video Player Section */}
+                    <div className="flex-[2] flex flex-col bg-[#000] border-r border-white/5 relative group">
+                        <div className="flex-1 relative flex items-center justify-center p-4 overflow-hidden">
+                            <div className="relative group max-h-full max-w-full w-fit h-fit flex items-center justify-center">
+                                <video
+                                    ref={videoRef}
+                                    src={shortsVideoUrl}
+                                    className="max-h-full max-w-full rounded-lg shadow-2xl cursor-pointer block"
+                                    playsInline
+                                    onClick={togglePlay}
+                                    onPlay={() => setIsPlaying(true)}
+                                    onPause={() => setIsPlaying(false)}
+                                    onEnded={() => setIsPlaying(false)}
+                                />
+
+                                {/* Crop Overlay */}
+                                <div ref={cropBoxRef} className="absolute border-2 border-purple-500 bg-purple-500/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.6)] pointer-events-none transition-all duration-75" />
+
+                                {/* Centered Play/Pause Button on Hover */}
+                                <button
+                                    onClick={togglePlay}
+                                    className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                    <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 scale-90 group-hover:scale-100 transition-transform">
+                                        {isPlaying ? <Pause className="w-8 h-8 fill-white" /> : <Play className="w-8 h-8 fill-white ml-1" />}
+                                    </div>
+                                </button>
+
+                                {/* Analysis Status */}
+                                {status === 'analyzing' && (
+                                    <div className="absolute inset-0 bg-white/95 backdrop-blur-sm flex flex-col items-center justify-center z-10 text-gray-900 text-center p-6">
+                                        <div className="relative mb-6">
+                                            <div className="w-24 h-24 border-4 border-purple-100 border-t-purple-600 rounded-full animate-spin" />
+                                            <div className="absolute inset-0 flex items-center justify-center">
+                                                <Smartphone className="w-8 h-8 text-purple-600" />
+                                            </div>
+                                        </div>
+                                        <h3 className="text-xl font-black mb-4 tracking-tight uppercase">Yapay Zeka Analiz Ediyor</h3>
+                                        <div className="w-72 bg-gray-100 rounded-full h-3 overflow-hidden mb-3">
+                                            <div className="bg-gradient-to-r from-purple-600 to-pink-600 h-full transition-all duration-300" style={{ width: `${progress * 100}%` }} />
+                                        </div>
+                                        <span className="text-purple-600 font-mono text-xl font-black">{Math.round(progress * 100)}%</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
 
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">Başlangıç Zamanı (sn)</label>
-                            <input
-                                type="number"
-                                min={0}
-                                max={config.endTime}
-                                step={1}
-                                value={Math.round(config.startTime)}
-                                onChange={e => {
-                                    const val = Number(e.target.value);
-                                    setShortsConfig({ startTime: val });
-                                    if (videoRef.current) videoRef.current.currentTime = val;
-                                }}
-                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                            />
+                    {/* Settings Panel */}
+                    <div className="w-80 flex flex-col bg-white border-l border-gray-200 overflow-y-auto custom-scrollbar">
+                        <div className="p-6 space-y-8">
+                            {/* Time Selection */}
+                            <section className="space-y-4">
+                                <div className="flex items-center gap-2 text-gray-400 text-xs font-bold uppercase tracking-widest">
+                                    <Settings className="w-3.5 h-3.5" />
+                                    <span>Klip Ayarları</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <p className="text-[10px] text-gray-400 uppercase font-bold">Başlangıç</p>
+                                        <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 flex items-center justify-between group hover:border-gray-200 transition-colors">
+                                            <input
+                                                type="number"
+                                                min={0}
+                                                step={0.1}
+                                                value={startTime}
+                                                onChange={(e) => {
+                                                    const val = parseFloat(e.target.value);
+                                                    setStartTime(val);
+                                                    if (videoRef.current) videoRef.current.currentTime = val;
+                                                }}
+                                                className="bg-transparent border-none text-gray-900 focus:outline-none w-16 font-mono font-bold"
+                                            />
+                                            <button onClick={() => { if (videoRef.current) setStartTime(videoRef.current.currentTime); }} className="p-1.5 hover:bg-gray-200 rounded-lg text-gray-400 hover:text-gray-900 transition-all">
+                                                <Check className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <p className="text-[10px] text-gray-400 uppercase font-bold">Bitiş</p>
+                                        <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 flex items-center justify-between group hover:border-gray-200 transition-colors">
+                                            <input
+                                                type="number"
+                                                max={videoRef.current?.duration || 100}
+                                                step={0.1}
+                                                value={endTime}
+                                                onChange={(e) => setEndTime(parseFloat(e.target.value))}
+                                                className="bg-transparent border-none text-gray-900 focus:outline-none w-16 font-mono font-bold"
+                                            />
+                                            <button onClick={() => { if (videoRef.current) setEndTime(videoRef.current.currentTime); }} className="p-1.5 hover:bg-gray-200 rounded-lg text-gray-400 hover:text-gray-900 transition-all">
+                                                <Check className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+
+                            {/* Face Tracker Toggle */}
+                            <section className="space-y-4">
+                                <div className="p-4 bg-purple-500/5 rounded-2xl border border-purple-500/10 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2 text-purple-400 text-[10px] font-bold uppercase tracking-widest">
+                                            <Sparkles className="w-3.5 h-3.5" />
+                                            <span>AI Yüz Takibi</span>
+                                        </div>
+                                        <button
+                                            onClick={() => setEnableFaceTracker(!enableFaceTracker)}
+                                            className={`w-10 h-5 rounded-full p-1 transition-all duration-300 ${enableFaceTracker ? 'bg-purple-600' : 'bg-white/10'}`}
+                                        >
+                                            <div className={`w-3 h-3 bg-white rounded-full transition-transform duration-300 ${enableFaceTracker ? 'translate-x-5' : 'translate-x-0'}`} />
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-gray-400 leading-relaxed font-medium">
+                                        Konuşmacıyı otomatik olarak algılar ve dikey kadrajda ortalar.
+                                    </p>
+                                    {enableFaceTracker && (
+                                        <button
+                                            onClick={runAnalysis}
+                                            disabled={status === 'analyzing'}
+                                            className="w-full py-2 bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50"
+                                        >
+                                            {status === 'analyzing' ? 'Analiz Ediliyor...' : 'Yüz Analizini Başlat'}
+                                        </button>
+                                    )}
+                                </div>
+                            </section>
+
+                            {/* Add Button */}
+                            <div className="pt-4">
+                                <button
+                                    onClick={addOrUpdateClip}
+                                    className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-3 hover:bg-gray-800 active:scale-[0.98] transition-all overflow-hidden relative group"
+                                >
+                                    <span>
+                                        {editingClipId ? 'Değişiklikleri Kaydet' : 'Shorts Olarak Ekle'}
+                                    </span>
+                                    {editingClipId ? <Check className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+                                </button>
+                                {editingClipId && (
+                                    <button
+                                        onClick={() => setEditingClipId(null)}
+                                        className="w-full mt-3 py-3 text-gray-400 hover:text-gray-900 text-[10px] font-bold uppercase tracking-wider transition-colors"
+                                    >
+                                        Düzenlemeyi İptal Et
+                                    </button>
+                                )}
+                            </div>
                         </div>
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">Bitiş Zamanı (sn)</label>
-                            <input
-                                type="number"
-                                min={config.startTime + 1}
-                                step={1}
-                                value={Math.round(config.endTime)}
-                                onChange={e => setShortsConfig({ endTime: Number(e.target.value) })}
-                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                            />
-                            <p className="text-xs text-gray-400 mt-1">Süre: {Math.round(config.endTime - config.startTime)} saniye (Max 60sn önerilir)</p>
+                    </div>
+                </div>
+
+                {/* Clips Gallery Footer */}
+                <div className="h-64 bg-white border-t border-gray-200 p-6 flex flex-col gap-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <Film className="w-4 h-4 text-purple-600" />
+                            <h3 className="text-sm font-bold uppercase tracking-widest text-gray-400">Klipler ({clips.length})</h3>
                         </div>
                     </div>
 
-                    <div className="pt-4 border-t border-gray-100">
-                        <label className="flex items-center justify-between p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors border-l-2 border-indigo-500">
-                            <div className="flex items-center gap-3">
-                                <Sparkles size={16} className="text-indigo-600" />
-                                <div>
-                                    <span className="text-sm font-medium text-gray-800">Yapay Zeka ile Yüz Takibi</span>
-                                    <span className="text-xs text-gray-400 block">Konuşmacıyı otomatik takip et</span>
+                    <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar flex-1 min-h-0">
+                        {clips.map((clip) => (
+                            <div
+                                key={clip.id}
+                                onClick={() => editClip(clip)}
+                                className={`relative h-full aspect-[9/16] rounded-xl overflow-hidden cursor-pointer group flex-shrink-0 border-2 transition-all duration-300 ${editingClipId === clip.id ? 'border-purple-500 scale-105 z-10 shadow-2xl shadow-purple-500/20' : 'border-white/5 hover:border-white/20'}`}
+                            >
+                                {/* Thumbnail */}
+                                {clip.thumbnail ? (
+                                    <img src={clip.thumbnail} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                                ) : (
+                                    <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                                        <Film className="w-6 h-6 text-gray-300" />
+                                    </div>
+                                )}
+
+                                {/* Action HUD */}
+                                <div className="absolute inset-0 bg-gradient-to-t from-gray-900/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2 gap-2">
+                                    <div className="flex items-center gap-1.5">
+                                        <div
+                                            className="flex-1 py-1.5 bg-white/90 hover:bg-white rounded-md flex items-center justify-center shadow-sm"
+                                            title="Düzenlemek İçin Tıkla"
+                                        >
+                                            <Edit2 size={12} className="text-gray-900" />
+                                        </div>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); deleteClip(clip.id, e); }}
+                                            className="py-1.5 px-2 bg-red-500/20 hover:bg-red-500/40 rounded-md text-red-500"
+                                            title="Sil"
+                                        >
+                                            <Trash2 size={12} />
+                                        </button>
+                                    </div>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); handleExportClip(clip); }}
+                                        disabled={exportingClipId !== null}
+                                        className="w-full py-2 bg-purple-600 hover:bg-purple-500 rounded-md text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-purple-900/40"
+                                    >
+                                        {exportingClipId === clip.id ? (
+                                            <>
+                                                <Loader2 size={12} className="animate-spin" />
+                                                {Math.round(exportProgress * 100)}%
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Download size={12} />
+                                                İndir
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+
+                                <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded text-[8px] font-mono text-white/80">
+                                    {clip.startTime.toFixed(1)}s - {clip.endTime.toFixed(1)}s
                                 </div>
                             </div>
-                            <input
-                                type="checkbox"
-                                checked={config.enableFaceTracker}
-                                onChange={e => setShortsConfig({ enableFaceTracker: e.target.checked })}
-                                className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500"
-                            />
-                        </label>
+                        ))}
+
+                        {/* Add New Clip Card */}
+                        {!editingClipId && (
+                            <button
+                                onClick={() => {
+                                    setEditingClipId(null);
+                                    setStartTime(videoRef.current?.currentTime || 0);
+                                    setEndTime(Math.min(videoRef.current?.duration || 100, (videoRef.current?.currentTime || 0) + 15));
+                                }}
+                                className="h-full aspect-[9/16] rounded-xl border-2 border-dashed border-white/10 hover:border-white/30 hover:bg-white/[0.02] transition-all flex flex-col items-center justify-center gap-3 text-white/20 hover:text-white/40 group flex-shrink-0"
+                            >
+                                <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                    <Plus className="w-6 h-6" />
+                                </div>
+                                <span className="text-[10px] font-bold uppercase tracking-widest">Yeni Klip</span>
+                            </button>
+                        )}
                     </div>
-
-                    {config.enableFaceTracker && (
-                        <button
-                            onClick={runAnalysis}
-                            disabled={status === 'analyzing'}
-                            className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-md shadow-indigo-600/20 hover:bg-indigo-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                        >
-                            {status === 'analyzing' ? <Loader2 className="animate-spin" /> : <Settings size={18} />}
-                            {status === 'analyzing' ? 'Analiz Ediliyor...' : 'Yüz Analizini Başlat (Önizle)'}
-                        </button>
-                    )}
-                </div>
-
-                <div className="flex-1" />
-
-                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 text-sm text-blue-800 mb-4">
-                    Belirlediğiniz zaman aralığı (<strong>{Math.round(config.startTime)}sn - {Math.round(config.endTime)}sn</strong>) sadece Shorts dışa aktarımı için geçerli olacaktır.
                 </div>
             </div>
         </div>

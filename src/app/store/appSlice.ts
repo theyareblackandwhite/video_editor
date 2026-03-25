@@ -33,7 +33,7 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
     shortsConfig: undefined,
     setShortsConfig: (config) => {
         set((state) => ({
-            shortsConfig: state.shortsConfig ? { ...state.shortsConfig, ...config } : { isActive: false, startTime: 0, endTime: 60, enableFaceTracker: true, ...config }
+            shortsConfig: state.shortsConfig ? { ...state.shortsConfig, ...config } : { isActive: false, clips: [], ...config }
         }));
         get().updateProjectState();
     },
@@ -54,7 +54,7 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
                 cuts: [],
                 layoutMode: 'crop',
                 transitionType: 'none',
-                shortsConfig: { isActive: false, startTime: 0, endTime: 60, enableFaceTracker: true }
+                shortsConfig: { isActive: false, clips: [] }
             }
         };
 

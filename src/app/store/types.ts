@@ -27,11 +27,17 @@ export interface MediaFile {
     error?: string; // Loading or restoration error message
 }
 
-export interface ShortsConfig {
-    isActive: boolean;
+export interface ShortsClip {
+    id: string;
     startTime: number;
     endTime: number;
     enableFaceTracker: boolean;
+    thumbnail?: string; // Base64 thumbnail for the gallery
+}
+
+export interface ShortsConfig {
+    isActive: boolean;
+    clips: ShortsClip[];
 }
 
 export interface ProjectState {
