@@ -332,7 +332,13 @@ export const ShortsCreator: React.FC = () => {
 
             // Use system path if available, otherwise fallback to url (which will likely fail FFmpeg if it's a blob)
             const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
-            const dummyMaster: any = { id: masterVideoId, path: nativePath, name: 'shorts.mp4', isMaster: true };
+            
+            if (nativePath.startsWith('blob:')) {
+                alert('Lütfen Shorts videonuzu "Video Seç" butonuna (Tauri native file picker) tıklayarak yükleyin. Sürükle-bırak yöntemi masaüstü dışa aktarımında şu an desteklenmemektedir.');
+                return;
+            }
+
+            const dummyMaster: any = { id: masterVideoId, path: nativePath, name: 'shorts.mp4', type: 'video/mp4', isMaster: true };
 
             // Transcription if enabled
             if (clip.enableCaptions) {

@@ -91,8 +91,8 @@ const detectFastExport = (
     const noCuts = !config.applyCuts || cuts.length === 0;
     const noNormalization = !config.normalizeAudio;
     const noRoundedCorners = config.borderRadius === 0;
-    const isFormatMatch = masterVideo.name.toLowerCase().endsWith(config.format) || 
-                         masterVideo.type.includes(config.format);
+    const isFormatMatch = Boolean(masterVideo.name?.toLowerCase().endsWith(config.format) || 
+                         (masterVideo.type && masterVideo.type.includes(config.format)));
 
     const isMatch = isSingleVideo && !hasExternalAudio && noCuts && noNormalization && noRoundedCorners && isFormatMatch;
     return { isMatch };
