@@ -7,8 +7,8 @@ const STEPS = [
     { num: 2, label: 'Senkronize', icon: AudioLines },
     { num: 3, label: 'Düzenle', icon: Scissors },
     { num: 4, label: 'Kapak Tasarla', icon: Check },
-    { num: 5, label: 'Shorts', icon: Smartphone },
-    { num: 6, label: 'Dışa Aktar', icon: Download },
+    { num: 5, label: 'D\u0131\u015fa Aktar', icon: Download },
+    { num: 6, label: 'Shorts', icon: Smartphone },
 ];
 
 interface StepBarProps {

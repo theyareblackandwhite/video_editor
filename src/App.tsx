@@ -17,8 +17,8 @@ const StepComponents: Record<number, React.FC<any>> = {
   2: AudioSync,
   3: TimelineEdit,
   4: ThumbnailEditor,
-  5: ShortsCreator,
-  6: VideoExport,
+  5: VideoExport,
+  6: ShortsCreator,
 };
 
 function App() {
@@ -161,14 +161,14 @@ function App() {
             )}
             {currentStep === 5 && (
               <>
-                <h2 className="text-lg font-bold text-gray-900 leading-tight">Shorts Oluştur</h2>
-                <p className="text-[10px] text-gray-500 font-medium">Sosyal medya için kes</p>
+                <h2 className="text-lg font-bold text-gray-900 leading-tight">Dışa Aktar</h2>
+                <p className="text-[10px] text-gray-500 font-medium">Videonuzu kaydedin</p>
               </>
             )}
             {currentStep === 6 && (
               <>
-                <h2 className="text-lg font-bold text-gray-900 leading-tight">Dışa Aktar</h2>
-                <p className="text-[10px] text-gray-500 font-medium">Videonuzu kaydedin</p>
+                <h2 className="text-lg font-bold text-gray-900 leading-tight">Shorts Oluştur</h2>
+                <p className="text-[10px] text-gray-500 font-medium">Sosyal medya için kes</p>
               </>
             )}
           </div>
@@ -218,7 +218,7 @@ function App() {
                 className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-xl
                   hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
               >
-                Shorts Oluştur →
+                Dışa Aktar →
               </button>
             )}
             {currentStep === 5 && (
@@ -227,7 +227,7 @@ function App() {
                 className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-xl
                   hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
               >
-                Dışa Aktar →
+                Shorts Oluştur →
               </button>
             )}
           </div>
