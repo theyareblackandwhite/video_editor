@@ -8,9 +8,9 @@ import { VideoExport } from './features/video-export';
 import { useAppStore } from './app/store';
 import { useThumbnailStore } from './store/thumbnailSlice';
 import { captureVideoFrame } from './shared/utils/captureFrame';
-import { ErrorBoundary, ProjectSidebar } from './shared/ui';
+import { ErrorBoundary } from './shared/ui';
 import { StepBar } from './shared/ui';
-import { Menu } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 
 const StepComponents: Record<number, React.FC<any>> = {
   1: MediaUpload,
@@ -22,15 +22,11 @@ const StepComponents: Record<number, React.FC<any>> = {
 };
 
 function App() {
-  const { currentStep, videoFiles, audioFiles, createProject, switchProject, hydrateProject } = useAppStore();
-  const projectsLength = useAppStore(state => state.projects.length);
-  const currentProjectId = useAppStore(state => state.currentProjectId);
-  const firstProjectId = useAppStore(state => state.projects[0]?.id);
+  const { currentStep, videoFiles, audioFiles, resetSession, hydrateSession } = useAppStore();
 
   const [displayedStep, setDisplayedStep] = useState(currentStep);
   const [direction, setDirection] = useState<'left' | 'right'>('right');
   const [animating, setAnimating] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
   const prevStepRef = useRef(currentStep);
   const masterVideoRef = useRef<HTMLVideoElement>(null);
@@ -52,28 +48,18 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // ONLY run project logic AFTER hydration is complete to avoid race conditions
     if (!isHydrated) return;
 
-    // If no projects exist, create the default one.
-    if (projectsLength === 0) {
-      createProject('Adsız Proje 1');
-    } else if (projectsLength > 0 && !currentProjectId && firstProjectId) {
-      // If there are projects but none is selected, switch to the first one
-      switchProject(firstProjectId);
-      hydrateProject(firstProjectId).catch(console.error);
-    } else if (currentProjectId) {
-      // Perform initial hydration if we reload the page and have a current project
-      // Because current files are not persisted to localStorage.
-      const state = useAppStore.getState();
-      if (state.videoFiles.length === 0 && state.audioFiles.length === 0) {
-        const project = state.projects.find(p => p.id === currentProjectId);
-        if (project && (project.state.videoFiles.length > 0 || project.state.audioFiles.length > 0)) {
-          hydrateProject(currentProjectId).catch(console.error);
-        }
+    // Check if we need to hydrate the binary data (Blob URLs)
+    const state = useAppStore.getState();
+    if (state.videoFiles.length > 0 || state.audioFiles.length > 0) {
+      // If we have metadata but no actual File objects (after refresh), hydrate
+      const needsHydration = state.videoFiles.some(vf => !vf.file && !vf.error);
+      if (needsHydration) {
+        hydrateSession().catch(console.error);
       }
     }
-  }, [isHydrated, projectsLength, currentProjectId, firstProjectId, createProject, switchProject, hydrateProject]);
+  }, [isHydrated, hydrateSession]);
 
   useEffect(() => {
     if (currentStep !== prevStepRef.current) {
@@ -122,16 +108,14 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 flex h-screen overflow-hidden">
-      <ProjectSidebar isOpen={sidebarOpen} />
       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
         <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-[100] flex items-center px-4 h-16">
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 mr-4 hover:bg-gray-100 rounded-lg text-gray-600 transition-all active:scale-95 flex-shrink-0"
-            title={sidebarOpen ? "Menüyü Kapat" : "Menüyü Aç"}
-          >
-            <Menu size={24} />
-          </button>
+          <div className="flex items-center gap-2 mr-6 flex-shrink-0">
+             <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-600/20">
+                <CheckCircle2 size={20} className="text-white" />
+             </div>
+             <span className="font-black text-xl tracking-tighter text-gray-900">PODCUT</span>
+          </div>
 
           {/* Dynamic Title based on Step */}
           <div className="hidden lg:block mr-4 flex-shrink-0 animate-in fade-in slide-in-from-left-4 duration-500 min-w-[140px]">

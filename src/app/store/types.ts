@@ -40,19 +40,4 @@ export interface ShortsConfig {
     clips: ShortsClip[];
 }
 
-export interface ProjectState {
-    currentStep: number;
-    videoFiles: MediaFile[];
-    audioFiles: MediaFile[];
-    cuts: CutSegment[];
-    layoutMode: LayoutMode;
-    transitionType: TransitionType;
-    shortsConfig?: ShortsConfig;
-}
 
-export interface Project {
-    id: string;
-    name: string;
-    lastModified: number;
-    state: ProjectState;
-}

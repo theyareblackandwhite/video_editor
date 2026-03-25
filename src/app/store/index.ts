@@ -28,9 +28,14 @@ export const useAppStore = create<AppState>()(
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             storage: idbStorage as any,
             partialize: (state) => ({
-                projects: state.projects,
-                currentProjectId: state.currentProjectId,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                currentStep: state.currentStep,
+                videoFiles: state.videoFiles.map(f => ({ ...f, file: undefined, path: '' })), // Metadata only
+                audioFiles: state.audioFiles.map(f => ({ ...f, file: undefined, path: '' })),
+                cuts: state.cuts,
+                layoutMode: state.layoutMode,
+                transitionType: state.transitionType,
+                borderRadius: state.borderRadius,
+                shortsConfig: state.shortsConfig,
             }) as any,
         }
     )
