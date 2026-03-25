@@ -32,6 +32,7 @@ export interface ProjectState {
     cuts: CutSegment[];
     layoutMode: LayoutMode;
     transitionType: TransitionType;
+    borderRadius: number; // px, 0 = sharp corners
 }
 
 export interface Project {

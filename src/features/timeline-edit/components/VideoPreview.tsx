@@ -18,6 +18,7 @@ interface VideoPreviewProps {
     markIn: number | null;
     fmtTime: (s: number) => string;
     updateVideoTransform: (id: string, transform: Partial<VideoTransform>) => void;
+    borderRadius: number; // px, 0 = sharp corners
 }
 
 export const VideoPreview: React.FC<VideoPreviewProps> = ({
@@ -37,6 +38,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
     markIn,
     fmtTime,
     updateVideoTransform,
+    borderRadius,
 }) => {
     /* ── Drag & Zoom Context ── */
     const dragRef = useRef<{ id: string, startX: number, startY: number, initialX: number, initialY: number } | null>(null);
@@ -128,7 +130,8 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
     return (
         <div 
             ref={mainPreviewRef}
-            className={`bg-black rounded-2xl overflow-hidden shadow-xl mb-4 aspect-video relative flex items-center justify-center ${draggingId ? 'cursor-grabbing' : ''}`}
+            className={`bg-black overflow-hidden shadow-xl mb-4 aspect-video relative flex items-center justify-center ${draggingId ? 'cursor-grabbing' : ''}`}
+            style={{ borderRadius: `${borderRadius}px` }}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
@@ -138,6 +141,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                         <div 
                             data-video-id={masterVideo.id}
                             className={`group relative ${videoFiles.length > 1 ? 'flex-1 border-r border-gray-800' : 'w-full h-full'} overflow-hidden flex items-center justify-center bg-black ${layoutMode === 'crop' ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                            style={{ borderRadius: `${borderRadius}px` }}
                             onMouseDown={(e) => handleMouseDown(e, masterVideo)}
                         >
                             <video
@@ -171,6 +175,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                             key={v.id} 
                             data-video-id={v.id}
                             className={`group relative flex-1 overflow-hidden flex items-center justify-center bg-black border-l border-gray-800 ${layoutMode === 'crop' ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                            style={{ borderRadius: `${borderRadius}px` }}
                             onMouseDown={(e) => handleMouseDown(e, v)}
                         >
                             <video
