@@ -14,7 +14,7 @@ export interface AppSlice {
     switchProject: (id: string) => void;
     deleteProject: (id: string) => void;
     renameProject: (id: string, newName: string) => void;
-    updateProjectState: () => void;
+    updateProjectState: (immediate?: boolean) => void;
     updateVideoTransform: (id: string, transform: Partial<VideoTransform>) => void;
     shortsConfig?: ShortsConfig;
     setShortsConfig: (config: Partial<ShortsConfig>) => void;
@@ -27,7 +27,7 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
     currentStep: 1,
     setStep: (step) => {
         set({ currentStep: step });
-        get().updateProjectState();
+        get().updateProjectState(true);
     },
 
     shortsConfig: undefined,
@@ -132,12 +132,13 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
         }));
     },
 
-    updateProjectState: () => {
+    updateProjectState: (immediate = false) => {
         if (saveTimeout) {
             clearTimeout(saveTimeout);
+            saveTimeout = null;
         }
 
-        saveTimeout = setTimeout(() => {
+        const save = () => {
             const currentMetadata = {
                 videoFiles: get().videoFiles,
                 audioFiles: get().audioFiles,
@@ -145,12 +146,13 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
                 currentStep: get().currentStep,
                 layoutMode: get().layoutMode,
                 transitionType: get().transitionType,
+                shortsConfig: get().shortsConfig,
             };
 
             const projectId = get().currentProjectId;
             if (!projectId) return;
 
-            console.log(`[appSlice] Auto-saving project ${projectId} state...`, currentMetadata);
+            console.log(`[appSlice] ${immediate ? 'Immediate' : 'Auto-saving'} project ${projectId} state...`, currentMetadata);
 
             set((state) => ({
                 projects: state.projects.map(p =>
@@ -163,10 +165,16 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
                                 ...currentMetadata,
                             }
                         }
-                        : p
+                    : p
                 )
             }));
-        }, 1000); // 1-second debounce
+        };
+
+        if (immediate) {
+            save();
+        } else {
+            saveTimeout = setTimeout(save, 1000); // 1-second debounce
+        }
     },
 
     updateVideoTransform: (id, transform) => {

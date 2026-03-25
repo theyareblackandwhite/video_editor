@@ -22,7 +22,7 @@ const StepComponents: Record<number, React.FC<any>> = {
 };
 
 function App() {
-  const { currentStep, createProject, switchProject, hydrateProject } = useAppStore();
+  const { currentStep, videoFiles, audioFiles, createProject, switchProject, hydrateProject } = useAppStore();
   const projectsLength = useAppStore(state => state.projects.length);
   const currentProjectId = useAppStore(state => state.currentProjectId);
   const firstProjectId = useAppStore(state => state.projects[0]?.id);
@@ -177,84 +177,57 @@ function App() {
             <StepBar hideLogo />
           </div>
 
-          {/* Dynamic Actions based on Step */}
-          <div className="flex items-center gap-2 ml-4 flex-shrink-0 min-w-[120px] justify-end animate-in fade-in slide-in-from-right-4 duration-500">
-            {currentStep === 2 && (
-                <button
-                  onClick={() => useAppStore.getState().setStep(1)}
-                  className="px-4 py-2 bg-gray-50 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-all font-semibold border border-gray-200 hidden sm:block"
-                >
-                  ← Geri
-                </button>
-            )}
-            {currentStep === 3 && (
-              <>
-                <button
-                  onClick={() => useAppStore.getState().setStep(2)}
-                  className="px-4 py-2 bg-gray-50 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-all font-semibold border border-gray-200 hidden sm:block"
-                >
-                  ← Geri
-                </button>
-                <button
-                  onClick={() => {
-                    const videoEl = masterVideoRef.current;
-                    if (videoEl) {
-                      try {
-                        const base64 = captureVideoFrame(videoEl);
-                        useThumbnailStore.getState().setThumbnailBackground(base64);
-                      } catch (err) {
-                        console.error("Auto-capture failed:", err);
-                      }
-                    }
-                    useAppStore.getState().setStep(4);
-                  }}
-                  className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-lg
-                    hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
-                >
-                  Kapak Tasarla →
-                </button>
-              </>
-            )}
-            {currentStep === 4 && (
-              <>
-                <button
-                  onClick={() => useAppStore.getState().setStep(3)}
-                  className="px-4 py-2 bg-gray-50 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-all font-semibold border border-gray-200 hidden sm:block"
-                >
-                  ← Geri
-                </button>
-                <button
-                  onClick={() => useAppStore.getState().setStep(5)}
-                  className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-lg
-                    hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
-                >
-                  Shorts Oluştur →
-                </button>
-              </>
-            )}
-            {currentStep === 5 && (
-              <>
-                <button
-                  onClick={() => useAppStore.getState().setStep(4)}
-                  className="px-4 py-2 bg-gray-50 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-all font-semibold border border-gray-200 hidden sm:block"
-                >
-                  ← Geri
-                </button>
-                <button
-                  onClick={() => useAppStore.getState().setStep(6)}
-                  className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-lg
-                    hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
-                >
-                  Dışa Aktar →
-                </button>
-              </>
-            )}
-            {currentStep === 6 && (
+          <div className="flex items-center gap-3 ml-4 flex-shrink-0 min-w-[200px] justify-end animate-in fade-in slide-in-from-right-4 duration-500">
+            {/* Standardized Back Button (Steps 2-6) */}
+            {currentStep > 1 && (
               <button
-                onClick={() => useAppStore.getState().setStep(5)}
-                className="px-4 py-2 bg-gray-50 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-all font-semibold border border-gray-200"
+                onClick={() => {
+                  const targetStep = currentStep === 3 && videoFiles.length <= 1 && audioFiles.length === 0 ? 1 : currentStep - 1;
+                  useAppStore.getState().setStep(targetStep);
+                }}
+                className="px-4 py-2 bg-white text-gray-600 text-sm rounded-xl hover:bg-gray-50 transition-all font-semibold border border-gray-200 shadow-sm active:scale-95"
               >
                 ← Geri
+              </button>
+            )}
+
+            {/* Step-specific Next Buttons */}
+            {currentStep === 3 && (
+              <button
+                onClick={() => {
+                  const videoEl = masterVideoRef.current;
+                  if (videoEl) {
+                    try {
+                      const base64 = captureVideoFrame(videoEl);
+                      useThumbnailStore.getState().setThumbnailBackground(base64);
+                    } catch (err) {
+                      console.error("Auto-capture failed:", err);
+                    }
+                  }
+                  useAppStore.getState().setStep(4);
+                }}
+                className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-xl
+                  hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
+              >
+                Kapak Tasarla →
+              </button>
+            )}
+            {currentStep === 4 && (
+              <button
+                onClick={() => useAppStore.getState().setStep(5)}
+                className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-xl
+                  hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
+              >
+                Shorts Oluştur →
+              </button>
+            )}
+            {currentStep === 5 && (
+              <button
+                onClick={() => useAppStore.getState().setStep(6)}
+                className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-xl
+                  hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
+              >
+                Dışa Aktar →
               </button>
             )}
           </div>
