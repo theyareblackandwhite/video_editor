@@ -210,10 +210,11 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
             if (file) {
                 // If we restored a file, we MUST regenerate the blob URL because the old one is revoked/invalid
                 const path = URL.createObjectURL(file);
-                restoredVideoFiles.push({ ...vf, file, path });
+                restoredVideoFiles.push({ ...vf, file, path, error: undefined });
             } else {
                 console.warn(`[appSlice] Could not restore video file content for ${vf.id}`);
-                restoredVideoFiles.push(vf);
+                // Mark as error so UI can show fallback/re-upload message
+                restoredVideoFiles.push({ ...vf, error: 'restoration_failed' });
             }
         }
 
@@ -222,10 +223,10 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
             const file = await mediaStorage.getMediaFile(af.id);
             if (file) {
                 const path = URL.createObjectURL(file);
-                restoredAudioFiles.push({ ...af, file, path });
+                restoredAudioFiles.push({ ...af, file, path, error: undefined });
             } else {
                 console.warn(`[appSlice] Could not restore audio file content for ${af.id}`);
-                restoredAudioFiles.push(af);
+                restoredAudioFiles.push({ ...af, error: 'restoration_failed' });
             }
         }
 

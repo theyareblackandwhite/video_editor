@@ -1,4 +1,5 @@
 import React, { useRef, useState, useMemo } from 'react';
+import { Plus } from 'lucide-react';
 import { useAppStore } from '../../../app/store';
 import { fmtTime } from '../utils/timeFormat';
 
@@ -162,25 +163,43 @@ export const TimelineEdit: React.FC<{ masterVideoRef: React.RefObject<HTMLVideoE
                     </div>
 
 
-                    <VideoPreview
-                        masterVideo={masterVideo}
-                        otherVideos={otherVideos}
-                        allAudioFiles={allAudioFiles}
-                        videoFiles={videoFiles}
-                        layoutMode={layoutMode}
-                        mediaUrls={mediaUrls}
-                        masterVideoRef={masterVideoRef}
-                        otherVideoRefs={otherVideoRefs}
-                        audioRefs={audioRefs}
-                        duration={duration}
-                        setDuration={setDuration}
-                        setIsPlaying={setIsPlaying}
-                        currentTime={currentTime}
-                        markIn={markIn}
-                        fmtTime={fmtTime}
-                        updateVideoTransform={updateVideoTransform}
-                        borderRadius={borderRadius}
-                    />
+                    {videoFiles.length === 0 ? (
+                        <div className="bg-white rounded-3xl border border-dashed border-gray-200 aspect-video flex flex-col items-center justify-center p-12 text-center shadow-sm">
+                            <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-6">
+                                <Plus size={32} className="text-gray-300" />
+                            </div>
+                            <h2 className="text-2xl font-bold text-gray-900 mb-3">Hiç video bulunamadı</h2>
+                            <p className="text-gray-500 max-w-sm mb-8 leading-relaxed">
+                                Görünüşe göre bu projede düzenlenecek bir video yok veya videolar geri yüklenemedi.
+                            </p>
+                            <button
+                                onClick={() => useAppStore.getState().setStep(1)}
+                                className="px-8 py-3 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 active:scale-95"
+                            >
+                                Medya Yükle adımına dön
+                            </button>
+                        </div>
+                    ) : (
+                        <VideoPreview
+                            masterVideo={masterVideo}
+                            otherVideos={otherVideos}
+                            allAudioFiles={allAudioFiles}
+                            videoFiles={videoFiles}
+                            layoutMode={layoutMode}
+                            mediaUrls={mediaUrls}
+                            masterVideoRef={masterVideoRef}
+                            otherVideoRefs={otherVideoRefs}
+                            audioRefs={audioRefs}
+                            duration={duration}
+                            setDuration={setDuration}
+                            setIsPlaying={setIsPlaying}
+                            currentTime={currentTime}
+                            markIn={markIn}
+                            fmtTime={fmtTime}
+                            updateVideoTransform={updateVideoTransform}
+                            borderRadius={borderRadius}
+                        />
+                    )}
 
                     <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
                         <WaveformTimeline

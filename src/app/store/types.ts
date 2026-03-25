@@ -24,6 +24,7 @@ export interface MediaFile {
     isMaster?: boolean;
     isMuted?: boolean;
     transform?: VideoTransform;
+    error?: string; // Loading or restoration error message
 }
 
 export interface ShortsConfig {
