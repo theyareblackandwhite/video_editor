@@ -3,13 +3,14 @@ import { MediaUpload } from './features/media-upload';
 import { AudioSync } from './features/audio-sync';
 import { TimelineEdit } from './features/timeline-edit';
 import { ThumbnailEditor } from './features/thumbnail-design';
+import { ShortsCreator } from './features/video-export/components/ShortsCreator';
 import { VideoExport } from './features/video-export';
 import { useAppStore } from './app/store';
 import { useThumbnailStore } from './store/thumbnailSlice';
 import { captureVideoFrame } from './shared/utils/captureFrame';
-import { ErrorBoundary, ProjectSidebar } from './shared/ui';
+import { ErrorBoundary } from './shared/ui';
 import { StepBar } from './shared/ui';
-import { Menu } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 
 const StepComponents: Record<number, React.FC<any>> = {
   1: MediaUpload,
@@ -17,18 +18,15 @@ const StepComponents: Record<number, React.FC<any>> = {
   3: TimelineEdit,
   4: ThumbnailEditor,
   5: VideoExport,
+  6: ShortsCreator,
 };
 
 function App() {
-  const { currentStep, createProject, switchProject, hydrateProject } = useAppStore();
-  const projectsLength = useAppStore(state => state.projects.length);
-  const currentProjectId = useAppStore(state => state.currentProjectId);
-  const firstProjectId = useAppStore(state => state.projects[0]?.id);
+  const { currentStep, videoFiles, audioFiles, resetSession, hydrateSession } = useAppStore();
 
   const [displayedStep, setDisplayedStep] = useState(currentStep);
   const [direction, setDirection] = useState<'left' | 'right'>('right');
   const [animating, setAnimating] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
   const prevStepRef = useRef(currentStep);
   const masterVideoRef = useRef<HTMLVideoElement>(null);
@@ -50,28 +48,18 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // ONLY run project logic AFTER hydration is complete to avoid race conditions
     if (!isHydrated) return;
 
-    // If no projects exist, create the default one.
-    if (projectsLength === 0) {
-      createProject('Adsız Proje 1');
-    } else if (projectsLength > 0 && !currentProjectId && firstProjectId) {
-      // If there are projects but none is selected, switch to the first one
-      switchProject(firstProjectId);
-      hydrateProject(firstProjectId).catch(console.error);
-    } else if (currentProjectId) {
-      // Perform initial hydration if we reload the page and have a current project
-      // Because current files are not persisted to localStorage.
-      const state = useAppStore.getState();
-      if (state.videoFiles.length === 0 && state.audioFiles.length === 0) {
-        const project = state.projects.find(p => p.id === currentProjectId);
-        if (project && (project.state.videoFiles.length > 0 || project.state.audioFiles.length > 0)) {
-          hydrateProject(currentProjectId).catch(console.error);
-        }
+    // Check if we need to hydrate the binary data (Blob URLs)
+    const state = useAppStore.getState();
+    if (state.videoFiles.length > 0 || state.audioFiles.length > 0) {
+      // If we have metadata but no actual File objects (after refresh), hydrate
+      const needsHydration = state.videoFiles.some(vf => !vf.file && !vf.error);
+      if (needsHydration) {
+        hydrateSession().catch(console.error);
       }
     }
-  }, [isHydrated, projectsLength, currentProjectId, firstProjectId, createProject, switchProject, hydrateProject]);
+  }, [isHydrated, hydrateSession]);
 
   useEffect(() => {
     if (currentStep !== prevStepRef.current) {
@@ -120,16 +108,14 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 flex h-screen overflow-hidden">
-      <ProjectSidebar isOpen={sidebarOpen} />
       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
         <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-[100] flex items-center px-4 h-16">
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 mr-4 hover:bg-gray-100 rounded-lg text-gray-600 transition-all active:scale-95 flex-shrink-0"
-            title={sidebarOpen ? "Menüyü Kapat" : "Menüyü Aç"}
-          >
-            <Menu size={24} />
-          </button>
+          <div className="flex items-center gap-2 mr-6 flex-shrink-0">
+             <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-600/20">
+                <CheckCircle2 size={20} className="text-white" />
+             </div>
+             <span className="font-black text-xl tracking-tighter text-gray-900">PODCUT</span>
+          </div>
 
           {/* Dynamic Title based on Step */}
           <div className="hidden lg:block mr-4 flex-shrink-0 animate-in fade-in slide-in-from-left-4 duration-500 min-w-[140px]">
@@ -163,73 +149,69 @@ function App() {
                 <p className="text-[10px] text-gray-500 font-medium">Videonuzu kaydedin</p>
               </>
             )}
+            {currentStep === 6 && (
+              <>
+                <h2 className="text-lg font-bold text-gray-900 leading-tight">Shorts Oluştur</h2>
+                <p className="text-[10px] text-gray-500 font-medium">Sosyal medya için kes</p>
+              </>
+            )}
           </div>
 
           <div className="flex-1 min-w-0">
             <StepBar hideLogo />
           </div>
 
-          {/* Dynamic Actions based on Step */}
-          <div className="flex items-center gap-2 ml-4 flex-shrink-0 min-w-[120px] justify-end animate-in fade-in slide-in-from-right-4 duration-500">
-            {currentStep === 2 && (
-                <button
-                  onClick={() => useAppStore.getState().setStep(1)}
-                  className="px-4 py-2 bg-gray-50 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-all font-semibold border border-gray-200 hidden sm:block"
-                >
-                  ← Geri
-                </button>
+          <div className="flex items-center gap-3 ml-4 flex-shrink-0 min-w-[200px] justify-end animate-in fade-in slide-in-from-right-4 duration-500">
+            {/* Standardized Back Button (Steps 2-6) */}
+            {currentStep > 1 && (
+              <button
+                onClick={() => {
+                  const targetStep = currentStep === 3 && videoFiles.length <= 1 && audioFiles.length === 0 ? 1 : currentStep - 1;
+                  useAppStore.getState().setStep(targetStep);
+                }}
+                className="px-4 py-2 bg-white text-gray-600 text-sm rounded-xl hover:bg-gray-50 transition-all font-semibold border border-gray-200 shadow-sm active:scale-95"
+              >
+                ← Geri
+              </button>
             )}
+
+            {/* Step-specific Next Buttons */}
             {currentStep === 3 && (
-              <>
-                <button
-                  onClick={() => useAppStore.getState().setStep(2)}
-                  className="px-4 py-2 bg-gray-50 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-all font-semibold border border-gray-200 hidden sm:block"
-                >
-                  ← Geri
-                </button>
-                <button
-                  onClick={() => {
-                    const videoEl = masterVideoRef.current;
-                    if (videoEl) {
-                      try {
-                        const base64 = captureVideoFrame(videoEl);
-                        useThumbnailStore.getState().setThumbnailBackground(base64);
-                      } catch (err) {
-                        console.error("Auto-capture failed:", err);
-                      }
+              <button
+                onClick={() => {
+                  const videoEl = masterVideoRef.current;
+                  if (videoEl) {
+                    try {
+                      const base64 = captureVideoFrame(videoEl);
+                      useThumbnailStore.getState().setThumbnailBackground(base64);
+                    } catch (err) {
+                      console.error("Auto-capture failed:", err);
                     }
-                    useAppStore.getState().setStep(4);
-                  }}
-                  className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-lg
-                    hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
-                >
-                  Kapak Tasarla →
-                </button>
-              </>
+                  }
+                  useAppStore.getState().setStep(4);
+                }}
+                className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-xl
+                  hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
+              >
+                Kapak Tasarla →
+              </button>
             )}
             {currentStep === 4 && (
-              <>
-                <button
-                  onClick={() => useAppStore.getState().setStep(3)}
-                  className="px-4 py-2 bg-gray-50 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-all font-semibold border border-gray-200 hidden sm:block"
-                >
-                  ← Geri
-                </button>
-                <button
-                  onClick={() => useAppStore.getState().setStep(5)}
-                  className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-lg
-                    hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
-                >
-                  Dışa Aktar →
-                </button>
-              </>
+              <button
+                onClick={() => useAppStore.getState().setStep(5)}
+                className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-xl
+                  hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
+              >
+                Dışa Aktar →
+              </button>
             )}
             {currentStep === 5 && (
               <button
-                onClick={() => useAppStore.getState().setStep(4)}
-                className="px-4 py-2 bg-gray-50 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-all font-semibold border border-gray-200"
+                onClick={() => useAppStore.getState().setStep(6)}
+                className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-xl
+                  hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
               >
-                ← Kapağa Dön
+                Shorts Oluştur →
               </button>
             )}
           </div>

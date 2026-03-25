@@ -1,4 +1,4 @@
-import type { CutSegment, LayoutMode, TransitionType, MediaFile } from '../../../app/store/types';
+import type { CutSegment, LayoutMode, TransitionType, MediaFile, ShortsConfig, ShortsClip } from '../../../app/store/types';
 
 export interface ExportConfig {
     format: 'mp4' | 'webm';
@@ -10,6 +10,7 @@ export interface ExportConfig {
     transitionType: TransitionType;
     borderRadius: number; // px, 0 = sharp corners
 }
+
 
 /**
  * Converts a list of "cuts" (regions to remove) into a list of "segments" (regions to keep).
@@ -384,7 +385,10 @@ export const buildFFmpegCommand = (
     videoFiles: MediaFile[],
     audioFiles: MediaFile[],
     masterVideoId: string,
-    outputPath: string
+    outputPath: string,
+    cropFile?: string,
+    shortsConfig?: ShortsConfig,
+    activeClip?: ShortsClip
 ): string[] => {
     const args: string[] = ['-y', '-nostdin'];
     const filterComplex: string[] = [];
@@ -402,7 +406,7 @@ export const buildFFmpegCommand = (
     const segments = config.applyCuts ? getKeepSegments(cuts, totalDuration) : [{ start: 0, end: totalDuration }];
 
     // 2. Fast Export Detection
-    if (detectFastExport(config, masterVideo, otherVideos, audioFiles, cuts).isMatch) {
+    if (detectFastExport(config, masterVideo, otherVideos, audioFiles, cuts).isMatch && !activeClip && (!shortsConfig || !shortsConfig.isActive)) {
          args.push('-c:v', 'copy');
          if (!config.includeAudio) args.push('-an');
          else args.push('-c:a', 'copy');
@@ -430,18 +434,45 @@ export const buildFFmpegCommand = (
     // 4. Trimming and Transitions
     const { outV, outA } = applyTrimmingAndTransitions(config, segments, composedVideoStream, finalAudioSource, filterComplex);
 
-    // 5. Normalization
+    // 5. Normalization and Shorts Cropping
     let mappingAudio = `[${outA}]`;
     if (config.normalizeAudio) {
         mappingAudio = '[a_out]';
         filterComplex.push(`[${outA}]loudnorm=I=-16:TP=-1.5:LRA=11${mappingAudio}`);
     }
 
+    let mappingVideo = `[${outV}]`;
+    
+    // Check if we are exporting a specific short clip (highest priority) or the legacy single short
+    const currentShort = activeClip || (shortsConfig?.isActive ? {
+        startTime: (shortsConfig as any).startTime || 0,
+        endTime: (shortsConfig as any).endTime || totalDuration,
+        enableFaceTracker: (shortsConfig as any).enableFaceTracker || false,
+    } : null);
+
+    if (currentShort) {
+        mappingVideo = '[v_shorts_out]';
+        const trimFilter = `trim=start=${currentShort.startTime}:end=${currentShort.endTime},setpts=PTS-STARTPTS`;
+        let cropFilter = `crop=w=ih*9/16:h=ih:x=(iw-iw*9/16)/2:y=0`;
+        
+        if (currentShort.enableFaceTracker && cropFile) {
+            // Apply dynamic Face Tracking crop using sendcmd
+            const safePath = cropFile.replace(/\\/g, '/').replace(/:/g, '\\\\:');
+            cropFilter = `sendcmd=f='${safePath}',crop=w=ih*9/16:h=ih:x=0:y=0`;
+        }
+
+        filterComplex.push(`[${outV}]${trimFilter},${cropFilter}${mappingVideo}`);
+        
+        const oldAudio = mappingAudio;
+        mappingAudio = '[a_shorts_out]';
+        filterComplex.push(`${oldAudio}atrim=start=${currentShort.startTime}:end=${currentShort.endTime},asetpts=PTS-STARTPTS${mappingAudio}`);
+    }
+
     // 6. Build final command
     if (filterComplex.length > 0) {
         args.push('-filter_complex', filterComplex.join(';'));
     }
-    args.push('-map', `[${outV}]`, '-map', mappingAudio);
+    args.push('-map', mappingVideo, '-map', mappingAudio);
     args.push(...getEncodingArguments(config));
     args.push(outputPath);
 

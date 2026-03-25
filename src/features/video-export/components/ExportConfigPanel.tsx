@@ -13,6 +13,7 @@ const FORMAT_LABELS: Record<ExportConfig['format'], { label: string; desc: strin
     webm: { label: 'WebM (VP9)', desc: 'Web dostu, küçük boyut' },
 };
 
+
 interface Props {
     config: ExportConfig;
     setConfig: React.Dispatch<React.SetStateAction<ExportConfig>>;

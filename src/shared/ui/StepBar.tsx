@@ -1,13 +1,14 @@
 import React from 'react';
-import { Upload, AudioLines, Scissors, Download, Check } from 'lucide-react';
+import { Upload, AudioLines, Scissors, Download, Check, Smartphone } from 'lucide-react';
 import { useAppStore } from '../../app/store';
 
 const STEPS = [
     { num: 1, label: 'Yükle', icon: Upload },
     { num: 2, label: 'Senkronize', icon: AudioLines },
     { num: 3, label: 'Düzenle', icon: Scissors },
-    { num: 4, label: 'Kapak Tasarla', icon: Check }, // Using Check or similar icon for now
-    { num: 5, label: 'Dışa Aktar', icon: Download },
+    { num: 4, label: 'Kapak Tasarla', icon: Check },
+    { num: 5, label: 'D\u0131\u015fa Aktar', icon: Download },
+    { num: 6, label: 'Shorts', icon: Smartphone },
 ];
 
 interface StepBarProps {

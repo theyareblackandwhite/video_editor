@@ -15,29 +15,29 @@ export interface VideoTransform {
 
 export interface MediaFile {
     id: string;
-    path: string; // Native absolute path for desktop
+    path: string; // Native absolute path for desktop or blob URL for web
     name: string;
     type: string;
     size: number;
+    file?: File; // In-memory reference to the file object (web)
     syncOffset: number; // Offset relative to master
     isMaster?: boolean;
     isMuted?: boolean;
     transform?: VideoTransform;
+    error?: string; // Loading or restoration error message
 }
 
-export interface ProjectState {
-    currentStep: number;
-    videoFiles: MediaFile[];
-    audioFiles: MediaFile[];
-    cuts: CutSegment[];
-    layoutMode: LayoutMode;
-    transitionType: TransitionType;
-    borderRadius: number; // px, 0 = sharp corners
-}
-
-export interface Project {
+export interface ShortsClip {
     id: string;
-    name: string;
-    lastModified: number;
-    state: ProjectState;
+    startTime: number;
+    endTime: number;
+    enableFaceTracker: boolean;
+    thumbnail?: string; // Base64 thumbnail for the gallery
 }
+
+export interface ShortsConfig {
+    isActive: boolean;
+    clips: ShortsClip[];
+}
+
+

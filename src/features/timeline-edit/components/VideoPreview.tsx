@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { AlertCircle } from 'lucide-react';
 import type { MediaFile, LayoutMode, VideoTransform } from '../../../app/store/types';
 
 interface VideoPreviewProps {
@@ -144,25 +145,41 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                             style={{ borderRadius: `${borderRadius}px` }}
                             onMouseDown={(e) => handleMouseDown(e, masterVideo)}
                         >
-                            <video
-                                ref={masterVideoRef}
-                                src={mediaUrls[masterVideo.id]}
-                                style={getVideoStyle(masterVideo)}
-                                className={`w-full h-full ${videoFiles.length > 1 && layoutMode === 'crop' ? '' : 'object-contain'}`}
-                                onLoadedMetadata={() => {
-                                    if (masterVideoRef.current && duration === 0) {
-                                        setDuration(masterVideoRef.current.duration);
-                                    }
-                                }}
-                                onEnded={() => setIsPlaying(false)}
-                                muted={allAudioFiles.length > 0}
-                            />
+                            {masterVideo.error ? (
+                                <div className="flex flex-col items-center gap-2 p-6 text-center">
+                                    <AlertCircle size={32} className="text-red-500 opacity-50" />
+                                    <p className="text-xs text-gray-500 font-medium max-w-[180px]">
+                                        {masterVideo.error === 'restoration_failed' 
+                                            ? 'Dosya geri yüklenemedi. Lütfen tekrar yükleyin.' 
+                                            : 'Video yükleme hatası.'}
+                                    </p>
+                                </div>
+                            ) : (
+                                <video
+                                    ref={masterVideoRef}
+                                    src={mediaUrls[masterVideo.id]}
+                                    style={getVideoStyle(masterVideo)}
+                                    className={`w-full h-full ${videoFiles.length > 1 && layoutMode === 'crop' ? '' : 'object-contain'}`}
+                                    onLoadedMetadata={() => {
+                                        if (masterVideoRef.current && duration === 0) {
+                                            setDuration(masterVideoRef.current.duration);
+                                        }
+                                    }}
+                                    onError={() => {
+                                        // You could also update store here, but for now just showing it
+                                        console.error(`Failed to load video: ${masterVideo.name}`);
+                                    }}
+                                    onEnded={() => setIsPlaying(false)}
+                                    muted={allAudioFiles.length > 0}
+                                />
+                            )}
+                            
                             {videoFiles.length > 1 && (
-                                <span className="absolute top-2 left-2 bg-black/60 text-white/80 text-[10px] px-2 py-1 rounded font-mono pointer-events-none">MASTER</span>
+                                <span className="absolute top-2 left-2 bg-black/60 text-white/80 text-[10px] px-2 py-1 rounded font-mono pointer-events-none uppercase">{masterVideo.error ? 'HATA' : 'MASTER'}</span>
                             )}
                             
                             {/* Visual Zoom Indicator */}
-                            {layoutMode === 'crop' && (masterVideo.transform?.scale || 1) > 1 && (
+                            {layoutMode === 'crop' && (masterVideo.transform?.scale || 1) > 1 && !masterVideo.error && (
                                 <span className="absolute bottom-2 right-2 bg-black/40 text-white/60 text-[9px] px-1.5 py-0.5 rounded font-mono pointer-events-none opacity-0 group-hover:opacity-100">
                                     {masterVideo.transform?.scale.toFixed(2)}x
                                 </span>
@@ -178,17 +195,24 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
                             style={{ borderRadius: `${borderRadius}px` }}
                             onMouseDown={(e) => handleMouseDown(e, v)}
                         >
-                            <video
-                                ref={el => { if (el) otherVideoRefs.current[v.id] = el; }}
-                                src={mediaUrls[v.id]}
-                                style={getVideoStyle(v)}
-                                className="w-full h-full"
-                                muted
-                            />
+                            {v.error ? (
+                                <div className="flex flex-col items-center gap-2 p-6 text-center">
+                                    <AlertCircle size={24} className="text-red-500 opacity-40" />
+                                    <p className="text-[10px] text-gray-500 font-medium">HATA</p>
+                                </div>
+                            ) : (
+                                <video
+                                    ref={el => { if (el) otherVideoRefs.current[v.id] = el; }}
+                                    src={mediaUrls[v.id]}
+                                    style={getVideoStyle(v)}
+                                    className="w-full h-full"
+                                    muted
+                                />
+                            )}
                             <span className="absolute top-2 left-2 bg-black/60 text-white/80 text-[10px] px-2 py-1 rounded font-mono pointer-events-none">KAMERA 2</span>
                             
                             {/* Visual Zoom Indicator */}
-                            {layoutMode === 'crop' && (v.transform?.scale || 1) > 1 && (
+                            {layoutMode === 'crop' && (v.transform?.scale || 1) > 1 && !v.error && (
                                 <span className="absolute bottom-2 right-2 bg-black/40 text-white/60 text-[9px] px-1.5 py-0.5 rounded font-mono pointer-events-none opacity-0 group-hover:opacity-100">
                                     {v.transform?.scale.toFixed(2)}x
                                 </span>
