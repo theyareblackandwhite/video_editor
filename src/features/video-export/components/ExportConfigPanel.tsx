@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, Settings, Sparkles, Volume2, FileVideo, AudioLines, Check } from 'lucide-react';
+import { Film, Settings, Sparkles, Volume2, FileVideo, AudioLines, Check, Layers } from 'lucide-react';
 import type { ExportConfig } from '../utils/ffmpegUtils';
 
 const QUALITY_LABELS: Record<ExportConfig['quality'], { label: string; desc: string; icon: string }> = {
@@ -147,6 +147,20 @@ export const ExportConfigPanel: React.FC<Props> = ({ config, setConfig, audioFil
                             className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500"
                         />
                     </label>
+
+                    {/* Border Radius indicator (set in Timeline step) */}
+                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                        <div className="flex items-center gap-3">
+                            <Layers size={16} className="text-gray-500" />
+                            <div>
+                                <span className="text-sm font-medium text-gray-800">Köşe Yuvarlama</span>
+                                <span className="text-xs text-gray-400 block">Timeline adımında ayarlanır</span>
+                            </div>
+                        </div>
+                        <span className={`text-sm font-mono font-semibold ${config.borderRadius > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                            {config.borderRadius > 0 ? `${config.borderRadius}px` : 'Kapalı'}
+                        </span>
+                    </div>
                 </div>
             </div>
         </div>

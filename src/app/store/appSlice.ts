@@ -67,7 +67,6 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
             cuts: [],
             layoutMode: 'crop',
             transitionType: 'none',
-            shortsConfig: { isActive: false, startTime: 0, endTime: 60, enableFaceTracker: true }
         }));
     },
 
@@ -146,7 +145,6 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
                 currentStep: get().currentStep,
                 layoutMode: get().layoutMode,
                 transitionType: get().transitionType,
-                shortsConfig: (get() as any).shortsConfig,
             };
 
             const projectId = get().currentProjectId;
@@ -201,7 +199,6 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
             cuts: project.state.cuts || [],
             layoutMode: project.state.layoutMode || 'crop',
             transitionType: project.state.transitionType || 'none',
-            shortsConfig: project.state.shortsConfig,
             videoFiles: project.state.videoFiles || [],
             audioFiles: project.state.audioFiles || [],
         });
