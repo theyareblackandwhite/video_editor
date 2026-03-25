@@ -32,11 +32,16 @@ export interface ShortsClip {
     startTime: number;
     endTime: number;
     enableFaceTracker: boolean;
+    enableCaptions: boolean;
     thumbnail?: string; // Base64 thumbnail for the gallery
 }
 
 export interface ShortsConfig {
     isActive: boolean;
+    enableCaptions?: boolean;
+    enableFaceTracker?: boolean;
+    startTime?: number;
+    endTime?: number;
     clips: ShortsClip[];
 }
 

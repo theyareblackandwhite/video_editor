@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Command, Child } from '@tauri-apps/plugin-shell';
 import { save } from '@tauri-apps/plugin-dialog';
-import { writeTextFile, remove } from '@tauri-apps/plugin-fs';
+import { writeTextFile, remove, readFile } from '@tauri-apps/plugin-fs';
 import { safeConvertFileSrc } from '../../../shared/utils/tauri';
 import { useAppStore } from '../../../app/store';
 import type { ExportConfig } from '../utils/ffmpegUtils';
@@ -57,6 +57,8 @@ export function useExportProcess({
 
         let fakeProgressInterval: ReturnType<typeof setInterval> | null = null;
         let cropFile: string | undefined = undefined;
+        let subtitleFile: string | undefined = undefined;
+        let tempAudioPath: string | undefined = undefined;
 
         try {
             // 1. Pick where to save native file
@@ -102,13 +104,13 @@ export function useExportProcess({
                     setProgressLabel('Yüz analizi yapılıyor...');
                     try {
                         const videoSrc = safeConvertFileSrc(masterVideo.path);
-                        const coords = await analyzeVideoForShorts(videoSrc, shortsConfig.startTime, shortsConfig.endTime, (p) => setProgress(p));
+                        const coords = await analyzeVideoForShorts(videoSrc, shortsConfig.startTime ?? 0, shortsConfig.endTime ?? duration, (p) => setProgress(p));
                         if (coords && coords.length > 0) {
                             cropFile = selectedPath + '.crop.txt';
                             const lines = [];
                             for (let i = 0; i < coords.length; i++) {
                                 const c = coords[i];
-                                const nextTime = i < coords.length - 1 ? coords[i+1].time : shortsConfig.endTime;
+                                const nextTime = i < coords.length - 1 ? coords[i+1].time : (shortsConfig.endTime ?? duration);
                                 lines.push(`${c.time.toFixed(3)}-${nextTime.toFixed(3)} [enter] crop x ${Math.round(c.x)}, crop y ${Math.round(c.y)}, crop w ${Math.round(c.w)}, crop h ${Math.round(c.h)};`);
                             }
                             await writeTextFile(cropFile, lines.join('\n'));
@@ -117,11 +119,58 @@ export function useExportProcess({
                         console.error("Face analysis failed:", err);
                     }
                 }
+
+                if (shortsConfig.enableCaptions) {
+                    setProgressLabel('Ses metne dönüştürülüyor...');
+                    try {
+                        tempAudioPath = selectedPath + '.export_cc.wav';
+                        const exArgs = [
+                            '-y', '-i', masterVideo.path,
+                            '-ss', (shortsConfig.startTime ?? 0).toString(),
+                            '-t', ((shortsConfig.endTime ?? duration) - (shortsConfig.startTime ?? 0)).toString(),
+                            '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
+                            tempAudioPath
+                        ];
+                        const extractCmd = Command.create('ffmpeg', exArgs);
+                        const exResult = await extractCmd.execute();
+                        if (exResult.code === 0) {
+                            const rawAudio = await readFile(tempAudioPath);
+                            const audioCtx = new window.AudioContext({ sampleRate: 16000 });
+                            const audioBuffer = await audioCtx.decodeAudioData(rawAudio.buffer.slice(0));
+                            const float32Data = audioBuffer.getChannelData(0);
+
+                            const worker = new Worker(new URL('../utils/transcriber.ts', import.meta.url), { type: 'module' });
+                            await new Promise<void>((resolve, reject) => {
+                                worker.onmessage = async (e) => {
+                                    if (e.data.status === 'ready') {
+                                        worker.postMessage({ type: 'transcribe', audioData: float32Data });
+                                    } else if (e.data.status === 'done') {
+                                        subtitleFile = selectedPath + '.ass';
+                                        await writeTextFile(subtitleFile, e.data.assContent);
+                                        worker.terminate();
+                                        resolve();
+                                    } else if (e.data.status === 'error') {
+                                        worker.terminate();
+                                        reject(new Error(e.data.error));
+                                    } else if (e.data.status === 'processing') {
+                                        setProgressLabel('Altyazılar sekanslanıyor...');
+                                    }
+                                };
+                                worker.postMessage({ type: 'init' });
+                            });
+                        }
+                    } catch (err) {
+                        console.error("Caption generation failed:", err);
+                    }
+                }
+
                 setProgressLabel('Kısa video (Shorts) oluşturuluyor...');
             }
 
             // 3. Build command and execute
-            const args = buildFFmpegCommand(config, cuts, duration, videoFiles, audioFiles, masterVideo.id, selectedPath, cropFile, shortsConfig);
+            const safeSubtitle = subtitleFile || undefined;
+            const safeCrop = cropFile || undefined;
+            const args = buildFFmpegCommand(config, cuts, duration, videoFiles, audioFiles, masterVideo.id, selectedPath, safeCrop, shortsConfig, undefined, safeSubtitle);
 
             const cmd = Command.create('ffmpeg', args);
             
@@ -194,9 +243,15 @@ export function useExportProcess({
         } finally {
             if (fakeProgressInterval) clearInterval(fakeProgressInterval);
             childProcessRef.current = null;
-            // Clean up crop file if we created one
+            // Clean up files if we created them
             if (cropFile) {
                  remove(cropFile).catch(() => {});
+            }
+            if (subtitleFile) {
+                 remove(subtitleFile).catch(() => {});
+            }
+            if (tempAudioPath) {
+                 remove(tempAudioPath).catch(() => {});
             }
         }
     }, [videoFiles, audioFiles, masterVideo, config, cuts]);

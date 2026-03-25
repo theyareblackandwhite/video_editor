@@ -388,7 +388,8 @@ export const buildFFmpegCommand = (
     outputPath: string,
     cropFile?: string,
     shortsConfig?: ShortsConfig,
-    activeClip?: ShortsClip
+    activeClip?: ShortsClip,
+    subtitleFile?: string
 ): string[] => {
     const args: string[] = ['-y', '-nostdin'];
     const filterComplex: string[] = [];
@@ -448,6 +449,7 @@ export const buildFFmpegCommand = (
         startTime: (shortsConfig as any).startTime || 0,
         endTime: (shortsConfig as any).endTime || totalDuration,
         enableFaceTracker: (shortsConfig as any).enableFaceTracker || false,
+        enableCaptions: (shortsConfig as any).enableCaptions || false,
     } : null);
 
     if (currentShort) {
@@ -455,13 +457,22 @@ export const buildFFmpegCommand = (
         const trimFilter = `trim=start=${currentShort.startTime}:end=${currentShort.endTime},setpts=PTS-STARTPTS`;
         let cropFilter = `crop=w=ih*9/16:h=ih:x=(iw-iw*9/16)/2:y=0`;
         
-        if (currentShort.enableFaceTracker && cropFile) {
-            // Apply dynamic Face Tracking crop using sendcmd
-            const safePath = cropFile.replace(/\\/g, '/').replace(/:/g, '\\\\:');
-            cropFilter = `sendcmd=f='${safePath}',crop=w=ih*9/16:h=ih:x=0:y=0`;
+        if (currentShort.enableFaceTracker) {
+            if (cropFile) {
+                const safePath = cropFile.replace(/\\/g, '/').replace(/:/g, '\\\\:');
+                cropFilter = `sendcmd=f='${safePath}',crop=w=ih*9/16:h=ih:x=0:y=0`;
+            }
         }
 
-        filterComplex.push(`[${outV}]${trimFilter},${cropFilter}${mappingVideo}`);
+        let currentVideoFilter = `${trimFilter},${cropFilter}`;
+        if (currentShort.enableCaptions) {
+            if (subtitleFile) {
+                const safeSubtitlePath = subtitleFile.replace(/\\/g, '/').replace(/:/g, '\\\\:');
+                currentVideoFilter += `,subtitles='${safeSubtitlePath}'`;
+            }
+        }
+
+        filterComplex.push(`[${outV}]${currentVideoFilter}${mappingVideo}`);
         
         const oldAudio = mappingAudio;
         mappingAudio = '[a_shorts_out]';

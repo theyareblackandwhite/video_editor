@@ -13,6 +13,7 @@ import {
     Upload, X, Film, Plus, Trash2, Edit2, Check, Download,
     RotateCcw
 } from 'lucide-react';
+import { readFile } from '@tauri-apps/plugin-fs';
 
 export const ShortsCreator: React.FC = () => {
     const { shortsConfig, setShortsConfig } = useAppStore();
@@ -26,6 +27,7 @@ export const ShortsCreator: React.FC = () => {
     const [startTime, setStartTime] = useState(0);
     const [endTime, setEndTime] = useState(60);
     const [enableFaceTracker, setEnableFaceTracker] = useState(true);
+    const [enableCaptions, setEnableCaptions] = useState(false);
     const [editingClipId, setEditingClipId] = useState<string | null>(null);
 
     const [status, setStatus] = useState<'idle' | 'analyzing' | 'preview'>('idle');
@@ -36,6 +38,9 @@ export const ShortsCreator: React.FC = () => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [exportingClipId, setExportingClipId] = useState<string | null>(null);
     const [exportProgress, setExportProgress] = useState(0);
+
+    const [captionChunks, setCaptionChunks] = useState<any[]>([]);
+    const [captionStatus, setCaptionStatus] = useState<'idle' | 'generating' | 'done'>('idle');
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const cropBoxRef = useRef<HTMLDivElement>(null);
@@ -84,7 +89,8 @@ export const ShortsCreator: React.FC = () => {
                 const assetUrl = convertFileSrc(path);
 
                 // Create a dummy File object for local state compatibility
-                const file = { name: path.split('/').pop() || 'video.mp4', path } as any;
+                const rawName = path ? path.match(/[^\\\\/]+$/)?.[0] : undefined;
+                const file = { name: rawName || 'video.mp4', path } as any;
                 
                 setShortsVideoFile(file);
                 setShortsVideoUrl(assetUrl);
@@ -200,6 +206,74 @@ export const ShortsCreator: React.FC = () => {
         }
     };
 
+    const generateCaptionPreview = async () => {
+        if (!shortsVideoUrl) return;
+        const isTauri = !!(window as any).__TAURI_INTERNALS__;
+        if (!isTauri) return alert('Tauri masaüstü ortamı gereklidir.');
+
+        setCaptionStatus('generating');
+        
+        let tempAudioPath: string | undefined = undefined;
+        try {
+            const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
+            
+            // To avoid Tauri 'allow-read-file' permission issue for AppData Temp, 
+            // save the preview file right next to the original video which has been granted access.
+            const extIndex = nativePath.lastIndexOf('.');
+            const nameBase = extIndex !== -1 ? nativePath.substring(0, extIndex) : nativePath;
+            tempAudioPath = nameBase + '_preview_cc.wav';
+            
+            const exArgs = [
+                '-y', '-i', nativePath,
+                '-ss', startTime.toString(),
+                '-t', (endTime - startTime).toString(),
+                '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
+                tempAudioPath
+            ];
+            
+            const extractCmd = Command.create('ffmpeg', exArgs);
+            const exResult = await extractCmd.execute();
+            if (exResult.code === 0) {
+                const rawAudio = await readFile(tempAudioPath);
+                const audioCtx = new window.AudioContext({ sampleRate: 16000 });
+                const audioBuffer = await audioCtx.decodeAudioData(rawAudio.buffer.slice(0));
+                const float32Data = audioBuffer.getChannelData(0);
+
+                const worker = new Worker(new URL('../utils/transcriber.ts', import.meta.url), { type: 'module' });
+                
+                await new Promise<void>((resolve, reject) => {
+                    worker.onmessage = async (e) => {
+                        if (e.data.status === 'ready') {
+                            worker.postMessage({ type: 'transcribe', audioData: float32Data });
+                        } else if (e.data.status === 'done') {
+                            setCaptionChunks(e.data.chunks || []);
+                            worker.terminate();
+                            resolve();
+                        } else if (e.data.status === 'error') {
+                            worker.terminate();
+                            reject(new Error(e.data.error));
+                        }
+                    };
+                    worker.postMessage({ type: 'init' });
+                });
+            } else {
+                throw new Error("Ses çıkarma başarısız.");
+            }
+
+            setCaptionStatus('done');
+            if (videoRef.current) {
+                videoRef.current.currentTime = startTime;
+                videoRef.current.play().catch(console.error);
+            }
+        } catch (err) {
+            console.error(err);
+            alert("Altyazı oluşturulamadı: " + err);
+            setCaptionStatus('idle');
+        } finally {
+            if (tempAudioPath) await remove(tempAudioPath).catch(() => {});
+        }
+    };
+
     const handleExportClip = async (clip: ShortsClip) => {
         if (!shortsVideoUrl) return;
 
@@ -227,6 +301,8 @@ export const ShortsCreator: React.FC = () => {
         };
 
         let cropFile: string | undefined = undefined;
+        let subtitleFile: string | undefined = undefined;
+        let tempAudioPath: string | undefined = undefined;
 
         try {
             const selectedPath = await save({
@@ -258,6 +334,44 @@ export const ShortsCreator: React.FC = () => {
             const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
             const dummyMaster: any = { id: masterVideoId, path: nativePath, name: 'shorts.mp4', isMaster: true };
 
+            // Transcription if enabled
+            if (clip.enableCaptions) {
+                tempAudioPath = selectedPath + '.export_cc.wav';
+                const exArgs = [
+                    '-y', '-i', dummyMaster.path,
+                    '-ss', clip.startTime.toString(),
+                    '-t', (clip.endTime - clip.startTime).toString(),
+                    '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
+                    tempAudioPath
+                ];
+                const extractCmd = Command.create('ffmpeg', exArgs);
+                const exResult = await extractCmd.execute();
+                if (exResult.code === 0) {
+                    const rawAudio = await readFile(tempAudioPath);
+                    const audioCtx = new window.AudioContext({ sampleRate: 16000 });
+                    const audioBuffer = await audioCtx.decodeAudioData(rawAudio.buffer.slice(0));
+                    const float32Data = audioBuffer.getChannelData(0);
+
+                    const worker = new Worker(new URL('../utils/transcriber.ts', import.meta.url), { type: 'module' });
+                    await new Promise<void>((resolve, reject) => {
+                        worker.onmessage = async (e) => {
+                            if (e.data.status === 'ready') {
+                                worker.postMessage({ type: 'transcribe', audioData: float32Data });
+                            } else if (e.data.status === 'done') {
+                                subtitleFile = selectedPath + '.ass';
+                                await writeTextFile(subtitleFile, e.data.assContent);
+                                worker.terminate();
+                                resolve();
+                            } else if (e.data.status === 'error') {
+                                worker.terminate();
+                                reject(new Error(e.data.error));
+                            }
+                        };
+                        worker.postMessage({ type: 'init' });
+                    });
+                }
+            }
+
             const args = buildFFmpegCommand(
                 config,
                 [],
@@ -268,7 +382,8 @@ export const ShortsCreator: React.FC = () => {
                 selectedPath,
                 cropFile,
                 undefined,
-                clip
+                clip,
+                subtitleFile
             );
 
             // Create command
@@ -307,6 +422,8 @@ export const ShortsCreator: React.FC = () => {
             setExportingClipId(null);
             setExportProgress(0);
             if (cropFile) await remove(cropFile).catch(() => { });
+            if (subtitleFile) await remove(subtitleFile).catch(() => { });
+            if (tempAudioPath) await remove(tempAudioPath).catch(() => { });
         }
     };
 
@@ -336,6 +453,7 @@ export const ShortsCreator: React.FC = () => {
             startTime,
             endTime,
             enableFaceTracker,
+            enableCaptions,
             thumbnail
         };
 
@@ -365,6 +483,7 @@ export const ShortsCreator: React.FC = () => {
         setStartTime(clip.startTime);
         setEndTime(clip.endTime);
         setEnableFaceTracker(clip.enableFaceTracker);
+        setEnableCaptions(clip.enableCaptions || false);
         setEditingClipId(clip.id);
         setStatus('idle');
         setCoordinates([]);
@@ -381,6 +500,8 @@ export const ShortsCreator: React.FC = () => {
         setShortsConfig({ isActive: false, clips: [] });
         setStatus('idle');
         setCoordinates([]);
+        setCaptionChunks([]);
+        setCaptionStatus('idle');
     };
 
     if (!shortsVideoFile) {
@@ -467,12 +588,19 @@ export const ShortsCreator: React.FC = () => {
                                 {/* Centered Play/Pause Button on Hover */}
                                 <button
                                     onClick={togglePlay}
-                                    className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity z-30"
                                 >
                                     <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 scale-90 group-hover:scale-100 transition-transform">
                                         {isPlaying ? <Pause className="w-8 h-8 fill-white" /> : <Play className="w-8 h-8 fill-white ml-1" />}
                                     </div>
                                 </button>
+
+                                {/* Caption Overlay */}
+                                {enableCaptions && captionChunks.length > 0 && (
+                                    <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center z-20 pb-48">
+                                        <CaptionRenderer chunks={captionChunks} videoRef={videoRef} startTime={startTime} />
+                                    </div>
+                                )}
 
                                 {/* Analysis Status */}
                                 {status === 'analyzing' && (
@@ -568,6 +696,36 @@ export const ShortsCreator: React.FC = () => {
                                             className="w-full py-2 bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50"
                                         >
                                             {status === 'analyzing' ? 'Analiz Ediliyor...' : 'Yüz Analizini Başlat'}
+                                        </button>
+                                    )}
+                                </div>
+                            </section>
+
+                            {/* Auto Captions Toggle */}
+                            <section className="space-y-4 pt-1">
+                                <div className="p-4 bg-blue-500/5 rounded-2xl border border-blue-500/10 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2 text-blue-400 text-[10px] font-bold uppercase tracking-widest">
+                                            <span className="font-serif font-black text-sm leading-none bg-blue-400 text-white rounded px-1.5 py-0.5">CC</span>
+                                            <span>Oto-Altyazı (AI)</span>
+                                        </div>
+                                        <button
+                                            onClick={() => setEnableCaptions(!enableCaptions)}
+                                            className={`w-10 h-5 rounded-full p-1 transition-all duration-300 ${enableCaptions ? 'bg-blue-600' : 'bg-white/10'}`}
+                                        >
+                                            <div className={`w-3 h-3 bg-white rounded-full transition-transform duration-300 ${enableCaptions ? 'translate-x-5' : 'translate-x-0'}`} />
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-gray-400 leading-relaxed font-medium">
+                                        Videonuzdaki konuşmaları metne dönüştürür ve dinamik (Hormozi stili) altyazı ekler. Whisper AI modeliyle yerel olarak çalışır.
+                                    </p>
+                                    {enableCaptions && (
+                                        <button
+                                            onClick={generateCaptionPreview}
+                                            disabled={captionStatus === 'generating'}
+                                            className="w-full py-2 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50"
+                                        >
+                                            {captionStatus === 'generating' ? 'Altyazılar Oluşturuluyor...' : 'Altyazıları Göster'}
                                         </button>
                                     )}
                                 </div>
@@ -683,6 +841,91 @@ export const ShortsCreator: React.FC = () => {
                     </div>
                 </div>
             </div>
+        </div>
+    );
+};
+
+// Real-Time Preview Caption Renderer
+const CaptionRenderer: React.FC<{ chunks: any[], videoRef: React.RefObject<HTMLVideoElement | null>, startTime: number }> = ({ chunks, videoRef, startTime }) => {
+    const [currentLine, setCurrentLine] = useState<{word: string, isHighlight: boolean}[]>([]);
+
+    useEffect(() => {
+        const lines: { start: number, end: number, words: { text: string, start: number, end: number }[] }[] = [];
+        let curLine: any[] = [];
+        
+        for (const c of chunks) {
+            if (curLine.length >= 4) {
+                const s = curLine[0].timestamp[0] !== null ? curLine[0].timestamp[0] + startTime : startTime;
+                const e = curLine[curLine.length - 1].timestamp[1] !== null ? curLine[curLine.length - 1].timestamp[1] + startTime : startTime + 2;
+                lines.push({
+                    start: s,
+                    end: e,
+                    words: curLine.map(w => ({ text: w.text || "", start: w.timestamp[0] + startTime, end: w.timestamp[1] + startTime }))
+                });
+                curLine = [];
+            }
+            curLine.push(c);
+        }
+        if (curLine.length > 0) {
+            const s = curLine[0].timestamp[0] !== null ? curLine[0].timestamp[0] + startTime : startTime;
+            const e = curLine[curLine.length - 1].timestamp[1] !== null ? curLine[curLine.length - 1].timestamp[1] + startTime : startTime + 2;
+            lines.push({
+                start: s,
+                end: e,
+                words: curLine.map(w => ({ text: w.text || "", start: w.timestamp[0] + startTime, end: w.timestamp[1] + startTime }))
+            });
+        }
+
+        let rafId: number;
+        const update = () => {
+            if (videoRef.current) {
+                const t = videoRef.current.currentTime;
+                const line = lines.find(l => t >= l.start - 0.2 && t <= l.end + 0.2); 
+                
+                if (line) {
+                    const display = line.words.map((w) => {
+                        // determine the active word dynamically (first word where time <= end)
+                        // If multiple, just pick exactly inside boundaries, or cascade
+                        const isHighlight = t >= w.start && t <= w.end;
+                        return {
+                            word: w.text,
+                            isHighlight
+                        };
+                    });
+                    
+                    // Fallback to highlighting first word if none match exactly but time is within line
+                    if (!display.some(w => w.isHighlight) && display.length > 0) {
+                        display[0].isHighlight = true;
+                    }
+                    
+                    setCurrentLine(display);
+                } else {
+                    setCurrentLine([]);
+                }
+            }
+            rafId = requestAnimationFrame(update);
+        };
+        rafId = requestAnimationFrame(update);
+        return () => cancelAnimationFrame(rafId);
+    }, [chunks, videoRef, startTime]);
+
+    if(currentLine.length === 0) return null;
+
+    return (
+        <div className="flex gap-2 flex-wrap justify-center text-center px-8" style={{ textShadow: '0 4px 8px rgba(0,0,0,0.8)' }}>
+            {currentLine.map((w, i) => (
+                <span key={i} style={{ 
+                    fontFamily: '"Arial Black", Arial, sans-serif', 
+                    fontSize: '28px',
+                    fontWeight: '900',
+                    color: w.isHighlight ? '#FFD700' : '#FFFFFF',
+                    textTransform: 'uppercase',
+                    WebkitTextStroke: '1px black',
+                    marginRight: '6px'
+                }}>
+                    {w.word}
+                </span>
+            ))}
         </div>
     );
 };
