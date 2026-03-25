@@ -1,6 +1,6 @@
 import {
     Play, Pause, ChevronLeft, ChevronRight,
-    SkipBack, SkipForward, LayoutTemplate
+    SkipBack, SkipForward, LayoutTemplate, RectangleHorizontal
 } from 'lucide-react';
 import type { LayoutMode } from '../../../app/store/types';
 
@@ -11,6 +11,8 @@ interface TransportControlsProps {
     layoutMode: LayoutMode;
     setLayoutMode: (mode: LayoutMode) => void;
     hasMultipleVideos: boolean;
+    borderRadius: number;
+    setBorderRadius: (r: number) => void;
 }
 
 export const TransportControls: React.FC<TransportControlsProps> = ({
@@ -20,6 +22,8 @@ export const TransportControls: React.FC<TransportControlsProps> = ({
     layoutMode,
     setLayoutMode,
     hasMultipleVideos,
+    borderRadius,
+    setBorderRadius,
 }) => {
     return (
         <div className="flex flex-col gap-4 items-center w-full">
@@ -43,6 +47,26 @@ export const TransportControls: React.FC<TransportControlsProps> = ({
                         </button>
                     </div>
                 )}
+            </div>
+
+            {/* Rounded Corners Slider */}
+            <div className="w-full">
+                <label className="flex items-center justify-between text-[10px] text-gray-500 mb-1 font-medium">
+                    <span className="flex items-center gap-1">
+                        <RectangleHorizontal size={11} className="text-gray-400" />
+                        Köşe Yuvarlama
+                    </span>
+                    <span className="font-mono text-gray-700">{borderRadius}px</span>
+                </label>
+                <input
+                    type="range"
+                    min={0}
+                    max={50}
+                    step={1}
+                    value={borderRadius}
+                    onChange={e => setBorderRadius(Number(e.target.value))}
+                    className="w-full accent-blue-600 h-1.5 rounded-full cursor-pointer"
+                />
             </div>
 
             {/* Playback Controls */}

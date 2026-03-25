@@ -8,6 +8,7 @@ export interface ExportConfig {
     normalizeAudio: boolean;
     layoutMode: LayoutMode;
     transitionType: TransitionType;
+    borderRadius: number; // px, 0 = sharp corners
 }
 
 /**
@@ -88,11 +89,48 @@ const detectFastExport = (
     const hasExternalAudio = config.includeAudio && audioFiles.length > 0;
     const noCuts = !config.applyCuts || cuts.length === 0;
     const noNormalization = !config.normalizeAudio;
+    const noRoundedCorners = config.borderRadius === 0;
     const isFormatMatch = masterVideo.name.toLowerCase().endsWith(config.format) || 
                          masterVideo.type.includes(config.format);
 
-    const isMatch = isSingleVideo && !hasExternalAudio && noCuts && noNormalization && isFormatMatch;
+    const isMatch = isSingleVideo && !hasExternalAudio && noCuts && noNormalization && noRoundedCorners && isFormatMatch;
     return { isMatch };
+};
+
+/**
+ * Applies a rounded-corner alpha mask to a video stream.
+ * Uses format=yuva420p to enable alpha, then geq to zero-out corner pixels.
+ * @param inputLabel  e.g. '[v_layout]' or '0:v'
+ * @param outputLabel e.g. '[v_rounded]'
+ * @param w           video width in px
+ * @param h           video height in px
+ * @param r           corner radius in px
+ * @param filterComplex mutable array of filter graph segments
+ */
+const applyRoundedCornersFilter = (
+    inputLabel: string,
+    outputLabel: string,
+    w: number,
+    h: number,
+    r: number,
+    filterComplex: string[]
+): void => {
+    // Clamp radius so it can never exceed half the smaller dimension
+    const clampedR = Math.min(r, Math.floor(Math.min(w, h) / 2));
+
+    // Alpha expression: returns 0 (transparent) in each of the 4 rounded corners,
+    // 255 (opaque) everywhere else.
+    const alphaExpr = [
+        `if(`,
+        `  lte(X,${clampedR})*lte(Y,${clampedR})*gt(hypot(X-${clampedR}\\,Y-${clampedR})\\,${clampedR})`,   // top-left
+        `+ lte(X,${clampedR})*gte(Y,H-${clampedR})*gt(hypot(X-${clampedR}\\,Y-(H-${clampedR}))\\,${clampedR})`, // bottom-left
+        `+ gte(X,W-${clampedR})*lte(Y,${clampedR})*gt(hypot(X-(W-${clampedR})\\,Y-${clampedR})\\,${clampedR})`, // top-right
+        `+ gte(X,W-${clampedR})*gte(Y,H-${clampedR})*gt(hypot(X-(W-${clampedR})\\,Y-(H-${clampedR}))\\,${clampedR}),`, // bottom-right
+        `0,255)` // inside corner → transparent else opaque
+    ].join('');
+
+    const inLabel = inputLabel.startsWith('[') ? inputLabel : `[${inputLabel}]`;
+    filterComplex.push(`${inLabel}format=yuva420p,geq=lum='p(X\\,Y)':cb='p(X\\,Y)':cr='p(X\\,Y)':a='${alphaExpr}'${outputLabel}`);
 };
 
 /**
@@ -378,8 +416,19 @@ export const buildFFmpegCommand = (
     const audioInputOffset = 1 + otherVideos.length;
     const finalAudioSource = composeAudioFilter(audioFiles, audioInputOffset, config.includeAudio, filterComplex);
 
+    // 3b. Rounded Corners (applied to the composed video before trimming)
+    let composedVideoStream = videoStreams[0];
+    if (config.borderRadius > 0) {
+        const roundedLabel = '[v_rounded]';
+        // The composed output is always 720×720 (crop) or 1280×720 (scale)
+        const w = config.layoutMode === 'crop' ? 720 * videoFiles.length : 1280;
+        const h = 720;
+        applyRoundedCornersFilter(composedVideoStream, roundedLabel, w, h, config.borderRadius, filterComplex);
+        composedVideoStream = roundedLabel;
+    }
+
     // 4. Trimming and Transitions
-    const { outV, outA } = applyTrimmingAndTransitions(config, segments, videoStreams[0], finalAudioSource, filterComplex);
+    const { outV, outA } = applyTrimmingAndTransitions(config, segments, composedVideoStream, finalAudioSource, filterComplex);
 
     // 5. Normalization
     let mappingAudio = `[${outA}]`;

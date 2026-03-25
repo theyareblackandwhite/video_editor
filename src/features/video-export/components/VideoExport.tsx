@@ -9,7 +9,7 @@ import { ExportProcessing } from './ExportProcessing';
 import { ExportDone } from './ExportDone';
 
 export const VideoExport: React.FC = () => {
-    const { videoFiles, audioFiles, cuts, layoutMode, transitionType } = useAppStore();
+    const { videoFiles, audioFiles, cuts, layoutMode, transitionType, borderRadius } = useAppStore();
 
     const masterVideo = videoFiles.find(v => v.isMaster) || videoFiles[0];
 
@@ -20,7 +20,8 @@ export const VideoExport: React.FC = () => {
         applyCuts: cuts.length > 0,
         normalizeAudio: false,
         layoutMode,
-        transitionType
+        transitionType,
+        borderRadius,
     });
 
     const estimatedSize = masterVideo

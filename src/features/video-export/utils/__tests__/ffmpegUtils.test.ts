@@ -102,6 +102,7 @@ describe('buildFFmpegCommand', () => {
         normalizeAudio: false,
         layoutMode: 'crop' as const,
         transitionType: 'none' as const,
+        borderRadius: 0,
     };
 
     const mockMasterVideo = { id: 'm1', path: '/m.mp4', name: 'm.mp4', type: 'video/mp4', size: 1000, syncOffset: 0, isMaster: true };
@@ -191,5 +192,30 @@ describe('buildFFmpegCommand', () => {
 
         const webmArgs = buildFFmpegCommand({ ...baseConfig, format: 'webm' }, [], 60, [mockMasterVideo], [], 'm1', '/out.webm');
         expect(webmArgs[webmArgs.length - 1]).toBe('/out.webm');
+    });
+
+    it('does NOT include geq filter when borderRadius is 0', () => {
+        const args = buildFFmpegCommand(baseConfig, [], 60, [mockMasterVideo], [], 'm1', '/output.mp4');
+        // borderRadius=0 means fast-export passthrough → no filter_complex at all
+        expect(args).not.toContain('-filter_complex');
+        expect(args).not.toContain('geq');
+    });
+
+    it('includes geq rounded-corner filter when borderRadius > 0', () => {
+        const args = buildFFmpegCommand(
+            { ...baseConfig, borderRadius: 20, normalizeAudio: true },
+            [],
+            60,
+            [mockMasterVideo],
+            [],
+            'm1',
+            '/output.mp4'
+        );
+        const filterIdx = args.indexOf('-filter_complex');
+        expect(filterIdx).toBeGreaterThan(-1);
+        const filterStr = args[filterIdx + 1];
+        expect(filterStr).toContain('geq');
+        expect(filterStr).toContain('yuva420p');
+        expect(filterStr).toContain('hypot');
     });
 });

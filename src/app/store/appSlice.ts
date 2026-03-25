@@ -44,6 +44,7 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
                 cuts: [],
                 layoutMode: 'crop',
                 transitionType: 'none',
+                borderRadius: 0,
             }
         };
 
@@ -56,6 +57,7 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
             cuts: [],
             layoutMode: 'crop',
             transitionType: 'none',
+            borderRadius: 0,
         }));
     },
 
@@ -132,6 +134,7 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
                 currentStep: get().currentStep,
                 layoutMode: get().layoutMode,
                 transitionType: get().transitionType,
+                borderRadius: get().borderRadius,
             };
 
             const projectId = get().currentProjectId;
@@ -186,6 +189,7 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
             cuts: project.state.cuts || [],
             layoutMode: project.state.layoutMode || 'crop',
             transitionType: project.state.transitionType || 'none',
+            borderRadius: project.state.borderRadius ?? 0,
             videoFiles: project.state.videoFiles || [],
             audioFiles: project.state.audioFiles || [],
         });

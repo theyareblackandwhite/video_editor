@@ -16,7 +16,7 @@ import { WaveformTimeline } from './WaveformTimeline';
 import { CutListSidebar } from './CutListSidebar';
 
 export const TimelineEdit: React.FC<{ masterVideoRef: React.RefObject<HTMLVideoElement | null> }> = ({ masterVideoRef }) => {
-    const { videoFiles, audioFiles, cuts, setCuts, layoutMode, setLayoutMode, updateVideoTransform } = useAppStore();
+    const { videoFiles, audioFiles, cuts, setCuts, layoutMode, setLayoutMode, updateVideoTransform, borderRadius, setBorderRadius } = useAppStore();
 
     /* ── derived state ── */
     const masterVideo = useMemo(() => videoFiles.find(v => v.isMaster) || videoFiles[0], [videoFiles]);
@@ -109,6 +109,8 @@ export const TimelineEdit: React.FC<{ masterVideoRef: React.RefObject<HTMLVideoE
                             layoutMode={layoutMode}
                             setLayoutMode={setLayoutMode}
                             hasMultipleVideos={videoFiles.length > 1}
+                            borderRadius={borderRadius}
+                            setBorderRadius={setBorderRadius}
                         />
 
                         <div className="my-4 border-t border-gray-100" />
@@ -142,6 +144,8 @@ export const TimelineEdit: React.FC<{ masterVideoRef: React.RefObject<HTMLVideoE
                                 layoutMode={layoutMode}
                                 setLayoutMode={setLayoutMode}
                                 hasMultipleVideos={videoFiles.length > 1}
+                                borderRadius={borderRadius}
+                                setBorderRadius={setBorderRadius}
                             />
                             <div className="border-t border-gray-100 my-2" />
                             <CutToolbar
@@ -175,6 +179,7 @@ export const TimelineEdit: React.FC<{ masterVideoRef: React.RefObject<HTMLVideoE
                         markIn={markIn}
                         fmtTime={fmtTime}
                         updateVideoTransform={updateVideoTransform}
+                        borderRadius={borderRadius}
                     />
 
                     <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
