@@ -367,7 +367,7 @@ export const ShortsCreator: React.FC = () => {
     }
 
     return (
-        <div className="flex flex-col h-[calc(100vh-180px)] bg-gray-50 text-gray-900 overflow-hidden font-sans">
+        <div className="flex flex-col h-full bg-gray-50 text-gray-900 overflow-hidden font-sans">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-white">
                 <div className="flex items-center gap-3">
