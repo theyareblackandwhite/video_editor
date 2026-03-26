@@ -15,7 +15,15 @@ self.addEventListener('message', async (e) => {
         try {
             self.postMessage({ status: 'loading' });
             transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-base', {
-                quantized: true
+                quantized: true,
+                progress_callback: (p: any) => {
+                    // Report download/loading progress
+                    self.postMessage({ 
+                        status: 'loading_model', 
+                        progress: p.progress, 
+                        file: p.file 
+                    });
+                }
             });
             self.postMessage({ status: 'ready' });
             if (type === 'init') return;
@@ -33,7 +41,11 @@ self.addEventListener('message', async (e) => {
                 task: 'transcribe',
                 chunk_length_s: 30,
                 stride_length_s: 5,
-                return_timestamps: 'word'
+                return_timestamps: 'word',
+                callback_function: () => {
+                    // Report transcription progress
+                    // Transformers-JS might give chunk info here if it's long
+                }
             });
             
             const assContent = generateAssSubtitle(result.chunks);

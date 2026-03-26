@@ -14,6 +14,7 @@ import {
     RotateCcw
 } from 'lucide-react';
 import { readFile } from '@tauri-apps/plugin-fs';
+import { decodeToMono } from '../../../shared/utils/audio';
 
 export const ShortsCreator: React.FC = () => {
     const { shortsConfig, setShortsConfig } = useAppStore();
@@ -41,9 +42,12 @@ export const ShortsCreator: React.FC = () => {
 
     const [captionChunks, setCaptionChunks] = useState<any[]>([]);
     const [captionStatus, setCaptionStatus] = useState<'idle' | 'generating' | 'done'>('idle');
+    const [captionProgress, setCaptionProgress] = useState(0);
+    const [captionFileName, setCaptionFileName] = useState('');
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const cropBoxRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const rafRef = useRef<number | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -68,11 +72,18 @@ export const ShortsCreator: React.FC = () => {
         setEditingClipId(null);
     }, [shortsVideoUrl, setShortsConfig]);
 
+    const handleUploadClick = () => {
+        if ((window as any).__TAURI_INTERNALS__) {
+            handleNativeUpload();
+        } else {
+            fileInputRef.current?.click();
+        }
+    };
+
     const handleNativeUpload = async () => {
         try {
             // Check if we are in Tauri
             if (!(window as any).__TAURI_INTERNALS__) {
-                alert('Bu özellik yalnızca masaüstü uygulamasında çalışır.');
                 return;
             }
 
@@ -208,57 +219,39 @@ export const ShortsCreator: React.FC = () => {
 
     const generateCaptionPreview = async () => {
         if (!shortsVideoUrl) return;
-        const isTauri = !!(window as any).__TAURI_INTERNALS__;
-        if (!isTauri) return alert('Tauri masaüstü ortamı gereklidir.');
-
         setCaptionStatus('generating');
         
-        let tempAudioPath: string | undefined = undefined;
         try {
             const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
             
-            // To avoid Tauri 'allow-read-file' permission issue for AppData Temp, 
-            // save the preview file right next to the original video which has been granted access.
-            const extIndex = nativePath.lastIndexOf('.');
-            const nameBase = extIndex !== -1 ? nativePath.substring(0, extIndex) : nativePath;
-            tempAudioPath = nameBase + '_preview_cc.wav';
-            
-            const exArgs = [
-                '-y', '-i', nativePath,
-                '-ss', startTime.toString(),
-                '-t', (endTime - startTime).toString(),
-                '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
-                tempAudioPath
-            ];
-            
-            const extractCmd = Command.create('ffmpeg', exArgs);
-            const exResult = await extractCmd.execute();
-            if (exResult.code === 0) {
-                const rawAudio = await readFile(tempAudioPath);
-                const audioCtx = new window.AudioContext({ sampleRate: 16000 });
-                const audioBuffer = await audioCtx.decodeAudioData(rawAudio.buffer.slice(0));
-                const float32Data = audioBuffer.getChannelData(0);
+            // Extract audio as float32 mono for Whisper (16kHz)
+            const float32Data = await decodeToMono(nativePath, 16000);
 
-                const worker = new Worker(new URL('../utils/transcriber.ts', import.meta.url), { type: 'module' });
-                
-                await new Promise<void>((resolve, reject) => {
-                    worker.onmessage = async (e) => {
-                        if (e.data.status === 'ready') {
-                            worker.postMessage({ type: 'transcribe', audioData: float32Data });
-                        } else if (e.data.status === 'done') {
-                            setCaptionChunks(e.data.chunks || []);
-                            worker.terminate();
-                            resolve();
-                        } else if (e.data.status === 'error') {
-                            worker.terminate();
-                            reject(new Error(e.data.error));
-                        }
-                    };
-                    worker.postMessage({ type: 'init' });
-                });
-            } else {
-                throw new Error("Ses çıkarma başarısız.");
-            }
+            const worker = new Worker(new URL('../utils/transcriber.ts', import.meta.url), { type: 'module' });
+            
+            await new Promise<void>((resolve, reject) => {
+                worker.onmessage = async (e) => {
+                    if (e.data.status === 'loading_model') {
+                        setCaptionProgress(e.data.progress || 0);
+                        setCaptionFileName(e.data.file || '');
+                    } else if (e.data.status === 'ready') {
+                        setCaptionProgress(0);
+                        worker.postMessage({ type: 'transcribe', audioData: float32Data });
+                    } else if (e.data.status === 'processing') {
+                        setCaptionProgress(100);
+                        setCaptionFileName('İşleniyor...');
+                    } else if (e.data.status === 'done') {
+                        setCaptionChunks(e.data.chunks || []);
+                        setCaptionProgress(100);
+                        worker.terminate();
+                        resolve();
+                    } else if (e.data.status === 'error') {
+                        worker.terminate();
+                        reject(new Error(e.data.error));
+                    }
+                };
+                worker.postMessage({ type: 'init' });
+            });
 
             setCaptionStatus('done');
             if (videoRef.current) {
@@ -269,8 +262,6 @@ export const ShortsCreator: React.FC = () => {
             console.error(err);
             alert("Altyazı oluşturulamadı: " + err);
             setCaptionStatus('idle');
-        } finally {
-            if (tempAudioPath) await remove(tempAudioPath).catch(() => {});
         }
     };
 
@@ -280,7 +271,7 @@ export const ShortsCreator: React.FC = () => {
         // Platform Check
         const isTauri = !!(window as any).__TAURI_INTERNALS__;
         if (!isTauri) {
-            alert('Dışa aktarım işlemi sadece masaüstü uygulamasında desteklenmektedir.');
+            alert('Dışa aktarım (Export) işlemi yüksek performanslı offline FFmpeg gerektirdiği için şimdilik sadece masaüstü uygulamasında desteklenmektedir.');
             return;
         }
 
@@ -517,7 +508,7 @@ export const ShortsCreator: React.FC = () => {
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
-                    onClick={handleNativeUpload}
+                    onClick={handleUploadClick}
                     className={`
                         w-full max-w-2xl aspect-video rounded-3xl border-2 border-dashed flex flex-col items-center justify-center gap-6 transition-all duration-500 group relative overflow-hidden cursor-pointer
                         ${isDragging ? 'border-purple-500 bg-purple-500/10 scale-[1.02]' : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.04] hover:border-purple-500/30'}
@@ -535,6 +526,16 @@ export const ShortsCreator: React.FC = () => {
                         Video Seç
                     </div>
                 </div>
+                <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) loadVideoFile(file);
+                    }}
+                    accept="video/*"
+                    className="hidden"
+                />
             </div>
         );
     }
@@ -726,13 +727,30 @@ export const ShortsCreator: React.FC = () => {
                                         Videonuzdaki konuşmaları metne dönüştürür ve dinamik (Hormozi stili) altyazı ekler. Whisper AI modeliyle yerel olarak çalışır.
                                     </p>
                                     {enableCaptions && (
-                                        <button
-                                            onClick={generateCaptionPreview}
-                                            disabled={captionStatus === 'generating'}
-                                            className="w-full py-2 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50"
-                                        >
-                                            {captionStatus === 'generating' ? 'Altyazılar Oluşturuluyor...' : 'Altyazıları Göster'}
-                                        </button>
+                                        <div className="space-y-3">
+                                            <button
+                                                onClick={generateCaptionPreview}
+                                                disabled={captionStatus === 'generating'}
+                                                className="w-full py-2 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50"
+                                            >
+                                                {captionStatus === 'generating' ? 'Altyazılar Oluşturuluyor...' : 'Altyazıları Göster'}
+                                            </button>
+                                            
+                                            {captionStatus === 'generating' && (
+                                                <div className="space-y-1.5 animate-in fade-in duration-300">
+                                                    <div className="flex justify-between text-[9px] font-bold uppercase tracking-tighter text-blue-400/70">
+                                                        <span className="truncate max-w-[120px]">{captionFileName || 'Hazırlanıyor...'}</span>
+                                                        <span>%{Math.round(captionProgress)}</span>
+                                                    </div>
+                                                    <div className="w-full bg-blue-500/10 h-1 rounded-full overflow-hidden">
+                                                        <div 
+                                                            className="bg-blue-500 h-full transition-all duration-300 ease-out"
+                                                            style={{ width: `${captionProgress}%` }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     )}
                                 </div>
                             </section>
