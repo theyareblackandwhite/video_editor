@@ -18,6 +18,8 @@ interface UseExportProcessProps {
 
 import { analyzeVideoForShorts } from '../utils/faceTracker';
 
+import { isTauri } from '../../../shared/utils/tauri';
+
 export type ExportPhase = 'config' | 'processing' | 'done';
 
 export function useExportProcess({
@@ -54,6 +56,11 @@ export function useExportProcess({
 
     const handleExport = useCallback(async () => {
         if (!masterVideo) return;
+
+        if (!isTauri()) {
+            alert('Dışa aktarım (Export) işlemi yüksek performanslı offline FFmpeg gerektirdiği için şimdilik sadece masaüstü uygulamasında desteklenmektedir.');
+            return;
+        }
 
         let fakeProgressInterval: ReturnType<typeof setInterval> | null = null;
         let cropFile: string | undefined = undefined;
