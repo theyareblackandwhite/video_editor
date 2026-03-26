@@ -21,10 +21,9 @@ self.addEventListener('message', async (e) => {
     if (type === 'init' || !transcriber) {
         try {
             self.postMessage({ status: 'loading' });
-            transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-base', {
+            transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-small', {
                 quantized: true,
                 progress_callback: (p: any) => {
-                    // Report download/loading progress
                     self.postMessage({ 
                         status: 'loading_model', 
                         progress: p.progress, 
@@ -48,6 +47,7 @@ self.addEventListener('message', async (e) => {
             // Using Float32Array 16kHz audio data
             const result = await transcriber(audioData, {
                 task: 'transcribe',
+                language: 'turkish',
                 chunk_length_s: 30,
                 stride_length_s: 5,
                 return_timestamps: 'word',
