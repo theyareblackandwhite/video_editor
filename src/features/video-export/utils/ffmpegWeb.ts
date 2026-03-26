@@ -25,6 +25,63 @@ export async function getFFmpeg() {
     return ffmpeg;
 }
 
+/**
+ * Generates a PNG mask with black corners and a transparent rounded center.
+ * This is used for fast "fake" rounded corners on the web.
+ */
+async function generateRoundedCornerMask(w: number, h: number, r: number): Promise<Uint8Array> {
+    // We use OffscreenCanvas if available, otherwise regular canvas
+    let canvas: any;
+    if (typeof OffscreenCanvas !== 'undefined') {
+        canvas = new OffscreenCanvas(w, h);
+    } else {
+        canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+    }
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas context could not be created');
+
+    // 1. Fill entire canvas with black
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, w, h);
+
+    // 2. Clear the center with a rounded rectangle
+    // Clip method is reliable:
+    ctx.globalCompositeOperation = 'destination-out';
+    
+    // Draw rounded rect path
+    const x = 0;
+    const y = 0;
+    const radius = Math.min(r, w / 2, h / 2);
+    
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + w - radius, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+    ctx.lineTo(x + w, y + h - radius);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+    ctx.lineTo(x + radius, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+    ctx.fill();
+
+    if (typeof OffscreenCanvas !== 'undefined' && canvas instanceof OffscreenCanvas) {
+        const blob = await canvas.convertToBlob({ type: 'image/png' });
+        return new Uint8Array(await blob.arrayBuffer());
+    } else {
+        return new Promise((resolve) => {
+            canvas.toBlob(async (blob: Blob | null) => {
+                if (!blob) throw new Error('Blob creation failed');
+                resolve(new Uint8Array(await blob.arrayBuffer()));
+            }, 'image/png');
+        });
+    }
+}
+
 export async function exportVideoWeb(
     config: ExportConfig,
     masterVideo: MediaFile,
@@ -100,6 +157,17 @@ export async function exportVideoWeb(
             await ffmpeg.writeFile(virtualSubtitlePath, subtitleFileContent);
         }
 
+        let virtualMaskPath: string | undefined;
+        if (config.borderRadius > 0) {
+            virtualMaskPath = 'mask.png';
+            // Output dimensions for mask depend on layout mode
+            // Consistent with ffmpegUtils.ts
+            const w = config.layoutMode === 'crop' ? 720 * videoFiles.length : 1280;
+            const h = 720;
+            const maskData = await generateRoundedCornerMask(w, h, config.borderRadius);
+            await ffmpeg.writeFile(virtualMaskPath, maskData);
+        }
+
         // 2. Build command arguments with VIRTUAL paths
         // Create a copy of the state where paths are replaced with virtual names
         const virtualVideoFiles = videoFiles.map(v => ({ ...v, path: fileMap.get(v.id)! }));
@@ -121,7 +189,9 @@ export async function exportVideoWeb(
             virtualCropPath,
             shortsConfig,
             activeClip,
-            virtualSubtitlePath
+            virtualSubtitlePath,
+            virtualMaskPath,
+            720 // Cap height to 720p on web for performance
         );
 
         // Remove hardware acceleration or platform-specific args if buildFFmpegCommand added them
@@ -144,6 +214,7 @@ export async function exportVideoWeb(
         }
         if (virtualCropPath) await ffmpeg.deleteFile(virtualCropPath).catch(() => {});
         if (virtualSubtitlePath) await ffmpeg.deleteFile(virtualSubtitlePath).catch(() => {});
+        if (virtualMaskPath) await ffmpeg.deleteFile(virtualMaskPath).catch(() => {});
         await ffmpeg.deleteFile(outputName).catch(() => {});
 
         return data as Uint8Array;
