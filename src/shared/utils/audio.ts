@@ -11,7 +11,8 @@ import { NonRealTimeVAD } from '@ricky0123/vad-web';
 async function extractAudioWav(
     sourcePath: string,
     sampleRate: number,
-    maxDuration?: number
+    maxDuration?: number,
+    startOffset?: number
 ): Promise<string> {
     const dataDir = await tempDir();
     
@@ -28,7 +29,11 @@ async function extractAudioWav(
     const outPath = await join(dataDir, `temp_audio_${Date.now()}_${crypto.randomUUID()}.wav`);
     console.log('Extracting audio to:', outPath);
 
-    const args = ['-i', sourcePath];
+    const args: string[] = [];
+    if (startOffset) {
+        args.push('-ss', startOffset.toString());
+    }
+    args.push('-i', sourcePath);
     if (maxDuration) {
         args.push('-t', maxDuration.toString());
     }
@@ -64,7 +69,8 @@ async function extractAudioWav(
 export async function decodeToMono(
     filePath: string,
     sampleRate: number,
-    maxDuration?: number
+    maxDuration?: number,
+    startOffset?: number
 ): Promise<Float32Array> {
     console.log('Starting decodeToMono for:', filePath);
     
@@ -72,7 +78,7 @@ export async function decodeToMono(
 
     if (isTauri()) {
         // 1. Extract raw wav via FFmpeg native shell
-        const wavPath = await extractAudioWav(filePath, sampleRate, maxDuration);
+        const wavPath = await extractAudioWav(filePath, sampleRate, maxDuration, startOffset);
         console.log('WAV extracted to:', wavPath);
         
         // 2. Fetch the extracted wav into browser memory
@@ -127,11 +133,12 @@ export async function decodeToMono(
         }
 
         let channelData = decoded.getChannelData(0);
-
-        // Crop if maxDuration is set (primarily for web fallback where FFmpeg didn't crop)
-        if (!isTauri() && maxDuration && decoded.duration > maxDuration) {
-            const numSamples = Math.floor(maxDuration * sampleRate);
-            channelData = channelData.slice(0, numSamples);
+        
+        // Crop if startOffset or maxDuration is set (primarily for web fallback where FFmpeg didn't crop)
+        if (!isTauri() && (startOffset || maxDuration)) {
+            const startSample = startOffset ? Math.floor(startOffset * sampleRate) : 0;
+            const numSamples = maxDuration ? Math.floor(maxDuration * sampleRate) : (channelData.length - startSample);
+            channelData = channelData.slice(startSample, startSample + numSamples);
         }
 
         if (tempCtx.state !== 'closed') {

@@ -225,7 +225,8 @@ export const ShortsCreator: React.FC = () => {
             const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
             
             // Extract audio as float32 mono for Whisper (16kHz)
-            const float32Data = await decodeToMono(nativePath, 16000);
+            // Only extract the selected segment to speed up transcription
+            const float32Data = await decodeToMono(nativePath, 16000, endTime - startTime, startTime);
 
             const worker = new Worker(new URL('../utils/transcriber.ts', import.meta.url), { type: 'module' });
             
