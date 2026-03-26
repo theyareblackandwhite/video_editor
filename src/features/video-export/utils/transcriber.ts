@@ -5,6 +5,13 @@ env.allowLocalModels = false;
 // Ensure we use browser cache for models
 env.useBrowserCache = true;
 
+// Define specific paths to prevent 'importScripts' errors in Blob/Worker scenarios under Vite
+// See: https://github.com/xenova/transformers.js/issues/366
+env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/';
+// Disable attempting to load a nested worker, which throws importScripts errors when loaded via blob URL
+env.backends.onnx.wasm.numThreads = 1;
+env.backends.onnx.wasm.proxy = false; // Add this line to ensure no proxy worker is used
+
 // Web Worker instance state
 let transcriber: any = null;
 
