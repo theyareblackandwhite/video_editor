@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand';
 import type { AppState } from './index';
 import type { VideoTransform, ShortsConfig } from './types';
 import { mediaStorage } from './mediaStorage';
+import { validateConsistency } from './middleware/stateValidator';
 
 export interface AppSlice {
     currentStep: number;
@@ -12,6 +13,7 @@ export interface AppSlice {
     shortsConfig?: ShortsConfig;
     setShortsConfig: (config: Partial<ShortsConfig>) => void;
     hydrateSession: () => Promise<void>;
+    updateProjectState: () => void;
 }
 
 export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, get) => ({
@@ -25,6 +27,10 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
         set((state) => ({
             shortsConfig: state.shortsConfig ? { ...state.shortsConfig, ...config } : { isActive: false, clips: [], ...config }
         }));
+    },
+
+    updateProjectState: () => {
+        validateConsistency(get());
     },
 
     resetSession: () => {

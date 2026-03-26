@@ -1,5 +1,4 @@
 import type { StateCreator, StoreMutatorIdentifier } from 'zustand';
-import type { ProjectState } from '../types';
 
 /**
  * StateValidator Middleware
@@ -8,7 +7,7 @@ import type { ProjectState } from '../types';
  */
 
 type StateValidator = <
-  T extends { state: ProjectState },
+  T extends object,
   Mps extends [StoreMutatorIdentifier, unknown][] = [],
   Mcs extends [StoreMutatorIdentifier, unknown][] = []
 >(
@@ -19,40 +18,44 @@ export const stateValidator: StateValidator = (config) => (set, get, api) =>
   config(
     ((...args: any[]) => {
       (set as any)(...args);
-      const newState = get() as { state: ProjectState };
-      validateConsistency(newState.state);
+      const newState = get();
+      validateConsistency(newState);
     }) as typeof set,
     get,
     api
   );
 
 /**
- * Deep validation of ProjectState.
+ * Deep validation of store state.
  * Throws or logs warnings if consistency is breached.
  */
-function validateConsistency(state: ProjectState) {
+export function validateConsistency(state: any) {
     const errors: string[] = [];
 
-    // Rule 1: Step bounds
-    if (state.currentStep < 1 || state.currentStep > 5) {
+    // Rule 1: Step bounds (if currentStep exists)
+    if (state.currentStep !== undefined && (state.currentStep < 1 || state.currentStep > 5)) {
         errors.push(`Invalid currentStep: ${state.currentStep}. Must be between 1 and 5.`);
     }
 
-    // Rule 2: ID uniqueness for video files
-    const videoIds = new Set(state.videoFiles.map(f => f.id));
-    if (videoIds.size !== state.videoFiles.length) {
-        errors.push(`Duplicate video file IDs detected.`);
+    // Rule 2: ID uniqueness for video files (if videoFiles exists)
+    if (Array.isArray(state.videoFiles)) {
+        const videoIds = new Set(state.videoFiles.map((f: any) => f.id));
+        if (videoIds.size !== state.videoFiles.length) {
+            errors.push(`Duplicate video file IDs detected.`);
+        }
     }
 
-    // Rule 3: Cuts must have valid start/end
-    state.cuts.forEach((cut, idx) => {
-        if (cut.start >= cut.end) {
-            errors.push(`Invalid cut at index ${idx}: start (${cut.start}) must be less than end (${cut.end}).`);
-        }
-    });
+    // Rule 3: Cuts must have valid start/end (if cuts exists)
+    if (Array.isArray(state.cuts)) {
+        state.cuts.forEach((cut: any, idx: number) => {
+            if (cut.start >= cut.end) {
+                errors.push(`Invalid cut at index ${idx}: start (${cut.start}) must be less than end (${cut.end}).`);
+            }
+        });
+    }
 
     // Rule 4: Layout mode performance hint
-    if (state.videoFiles.length > 4) {
+    if (Array.isArray(state.videoFiles) && state.videoFiles.length > 4) {
         console.warn(`Performance warning: Processing ${state.videoFiles.length} files might be slow.`);
     }
 

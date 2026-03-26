@@ -5,6 +5,7 @@ import { createAppSlice, type AppSlice } from './appSlice';
 import { createMediaSlice, type MediaSlice } from '../../features/media-upload/store/mediaSlice';
 import { createSyncSlice, type SyncSlice } from '../../features/audio-sync/store/syncSlice';
 import { createTimelineSlice, type TimelineSlice } from '../../features/timeline-edit/store/timelineSlice';
+import { stateValidator } from './middleware/stateValidator';
 
 // Re-export types for backward compatibility
 export type { CutSegment, LayoutMode, TransitionType, MediaFile } from './types';
@@ -17,12 +18,14 @@ export type AppState = AppSlice & MediaSlice & SyncSlice & TimelineSlice;
 
 export const useAppStore = create<AppState>()(
     persist(
-        (...a) => ({
-            ...createAppSlice(...a),
-            ...createMediaSlice(...a),
-            ...createSyncSlice(...a),
-            ...createTimelineSlice(...a),
-        }),
+        stateValidator(
+            (...a) => ({
+                ...createAppSlice(...a),
+                ...createMediaSlice(...a),
+                ...createSyncSlice(...a),
+                ...createTimelineSlice(...a),
+            })
+        ),
         {
             name: 'video-editor-storage',
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
