@@ -107,6 +107,7 @@ const detectFastExport = (
  * @param h           video height in px
  * @param r           corner radius in px
  * @param filterComplex mutable array of filter graph segments
+ * @param overlayMaskPath optional path to a PNG mask for faster "fake" rounded corners
  */
 const applyRoundedCornersFilter = (
     inputLabel: string,
@@ -114,8 +115,23 @@ const applyRoundedCornersFilter = (
     w: number,
     h: number,
     r: number,
-    filterComplex: string[]
+    filterComplex: string[],
+    overlayMaskPath?: string
 ): void => {
+    const inLabel = inputLabel.startsWith('[') ? inputLabel : `[${inputLabel}]`;
+
+    if (overlayMaskPath) {
+        // Overlay method (Fast): Uses a pre-generated mask image
+        // The mask is expected to be a PNG with black corners and transparent center
+        // It should match the video dimensions (w x h)
+        // We assume the mask is input index 'mask_input_idx'
+        // But since we don't know the index here, we'll assume it's the LAST input added in buildFFmpegCommand
+        // Actually, it's better to pass the label of the mask stream.
+        filterComplex.push(`${inLabel}[mask]overlay=format=auto${outputLabel}`);
+        return;
+    }
+
+    // GEQ method (Slow but flexible)
     // Clamp radius so it can never exceed half the smaller dimension
     const clampedR = Math.min(r, Math.floor(Math.min(w, h) / 2));
 
@@ -130,7 +146,6 @@ const applyRoundedCornersFilter = (
         `0,255)` // inside corner → transparent else opaque
     ].join('');
 
-    const inLabel = inputLabel.startsWith('[') ? inputLabel : `[${inputLabel}]`;
     filterComplex.push(`${inLabel}format=yuva420p,geq=lum='p(X\\,Y)':cb='p(X\\,Y)':cr='p(X\\,Y)':a='${alphaExpr}'${outputLabel}`);
 };
 
@@ -389,7 +404,9 @@ export const buildFFmpegCommand = (
     cropFile?: string,
     shortsConfig?: ShortsConfig,
     activeClip?: ShortsClip,
-    subtitleFile?: string
+    subtitleFile?: string,
+    overlayMaskPath?: string,
+    maxHeight?: number
 ): string[] => {
     const args: string[] = ['-y', '-nostdin'];
     const filterComplex: string[] = [];
@@ -402,6 +419,11 @@ export const buildFFmpegCommand = (
     otherVideos.forEach(v => args.push('-i', v.path));
     if (config.includeAudio) {
         audioFiles.forEach(a => args.push('-i', a.path));
+    }
+
+    // Add mask input if provided
+    if (overlayMaskPath) {
+        args.push('-i', overlayMaskPath);
     }
 
     const segments = config.applyCuts ? getKeepSegments(cuts, totalDuration) : [{ start: 0, end: totalDuration }];
@@ -423,12 +445,29 @@ export const buildFFmpegCommand = (
 
     // 3b. Rounded Corners (applied to the composed video before trimming)
     let composedVideoStream = videoStreams[0];
+    
+    // 3c. Resolution Capping (important for Web performance)
+    if (maxHeight && !activeClip && (!shortsConfig || !shortsConfig.isActive)) {
+        // Only cap resolution if not doing shorts (shorts have their own resolution logic)
+        const scaleLabel = '[v_capped]';
+        filterComplex.push(`${composedVideoStream}scale=-1:'min(ih,${maxHeight})':flags=fast_bilinear${scaleLabel}`);
+        composedVideoStream = scaleLabel;
+    }
+
     if (config.borderRadius > 0) {
         const roundedLabel = '[v_rounded]';
-        // The composed output is always 720×720 (crop) or 1280×720 (scale)
+        // The composed output context width/height
         const w = config.layoutMode === 'crop' ? 720 * videoFiles.length : 1280;
         const h = 720;
-        applyRoundedCornersFilter(composedVideoStream, roundedLabel, w, h, config.borderRadius, filterComplex);
+        
+        // If we have an overlay mask, it's the last input
+        if (overlayMaskPath) {
+            const maskInputIdx = 1 + otherVideos.length + (config.includeAudio ? audioFiles.length : 0);
+            // Label the mask input
+            filterComplex.push(`[${maskInputIdx}:v]scale=${w}:${h}[mask]`);
+        }
+
+        applyRoundedCornersFilter(composedVideoStream, roundedLabel, w, h, config.borderRadius, filterComplex, overlayMaskPath);
         composedVideoStream = roundedLabel;
     }
 
