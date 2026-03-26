@@ -878,7 +878,14 @@ const CaptionRenderer: React.FC<{ chunks: any[], videoRef: React.RefObject<HTMLV
         const lines: { start: number, end: number, words: { text: string, start: number, end: number }[] }[] = [];
         let curLine: any[] = [];
         
+        let lastEnd = startTime;
+
         for (const c of chunks) {
+            // Provide fallback timestamps if still null, spacing them slightly
+            if (c.timestamp[0] === null) c.timestamp[0] = lastEnd - startTime;
+            if (c.timestamp[1] === null) c.timestamp[1] = c.timestamp[0] + 0.5;
+            lastEnd = c.timestamp[1] + startTime;
+
             if (curLine.length >= 4) {
                 const s = curLine[0].timestamp[0] !== null ? curLine[0].timestamp[0] + startTime : startTime;
                 const e = curLine[curLine.length - 1].timestamp[1] !== null ? curLine[curLine.length - 1].timestamp[1] + startTime : startTime + 2;

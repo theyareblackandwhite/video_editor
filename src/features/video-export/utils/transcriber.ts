@@ -55,8 +55,34 @@ self.addEventListener('message', async (e) => {
                 }
             });
             
-            const assContent = generateAssSubtitle(result.chunks);
-            self.postMessage({ status: 'done', assContent, chunks: result.chunks });
+            // Ensure chunks are properly formatted for CaptionRenderer even if word-level timestamps fail
+            let processedChunks = result.chunks || [];
+            if (!Array.isArray(processedChunks)) {
+                processedChunks = [{ text: result.text || "", timestamp: [0, audioData.length / 16000] }];
+            } else if (processedChunks.length > 0 && !processedChunks[0].timestamp) {
+                // If the model didn't return timestamps, try to estimate them
+                const totalDuration = audioData.length / 16000;
+                const timePerChunk = totalDuration / processedChunks.length;
+                processedChunks = processedChunks.map((c: any, i: number) => ({
+                    text: c.text,
+                    timestamp: [i * timePerChunk, (i + 1) * timePerChunk]
+                }));
+            }
+
+            // Also normalize individual chunk timestamps if missing or malformed
+            processedChunks = processedChunks.map((c: any) => {
+                const ts = Array.isArray(c.timestamp) ? c.timestamp : [null, null];
+                return {
+                    text: c.text?.trim() || "",
+                    timestamp: [
+                        typeof ts[0] === 'number' ? ts[0] : null,
+                        typeof ts[1] === 'number' ? ts[1] : null
+                    ]
+                };
+            });
+
+            const assContent = generateAssSubtitle(processedChunks);
+            self.postMessage({ status: 'done', assContent, chunks: processedChunks });
         } catch (err: any) {
             self.postMessage({ status: 'error', error: err?.message || err?.toString() });
         }
