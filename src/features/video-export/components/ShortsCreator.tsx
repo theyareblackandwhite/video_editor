@@ -229,6 +229,7 @@ export const ShortsCreator: React.FC = () => {
             const float32Data = await decodeToMono(nativePath, 16000, endTime - startTime, startTime);
 
             const worker = new Worker(new URL('../utils/transcriber.ts', import.meta.url), { type: 'module' });
+            worker.onerror = (e) => console.error('[Caption] Worker error:', e.message, e);
             
             await new Promise<void>((resolve, reject) => {
                 worker.onmessage = async (e) => {
@@ -247,6 +248,7 @@ export const ShortsCreator: React.FC = () => {
                         worker.terminate();
                         resolve();
                     } else if (e.data.status === 'error') {
+                        console.error('[Caption] Worker error:', e.data.error);
                         worker.terminate();
                         reject(new Error(e.data.error));
                     }
@@ -260,11 +262,12 @@ export const ShortsCreator: React.FC = () => {
                 videoRef.current.play().catch(console.error);
             }
         } catch (err) {
-            console.error(err);
+            console.error('[Caption] Error:', err);
             alert("Altyazı oluşturulamadı: " + err);
             setCaptionStatus('idle');
         }
     };
+
 
     const handleExportClip = async (clip: ShortsClip) => {
         if (!shortsVideoUrl) return;

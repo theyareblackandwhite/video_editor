@@ -43,51 +43,98 @@ self.addEventListener('message', async (e) => {
     if (type === 'transcribe' && audioData) {
         try {
             self.postMessage({ status: 'processing' });
+            const totalDuration = audioData.length / 16000;
+            
             // Using Float32Array 16kHz audio data
             const result = await transcriber(audioData, {
                 task: 'transcribe',
                 chunk_length_s: 30,
                 stride_length_s: 5,
                 return_timestamps: 'word',
-                callback_function: () => {
-                    // Report transcription progress
-                    // Transformers-JS might give chunk info here if it's long
-                }
+                callback_function: () => {}
             });
             
-            // Ensure chunks are properly formatted for CaptionRenderer even if word-level timestamps fail
-            let processedChunks = result.chunks || [];
-            if (!Array.isArray(processedChunks)) {
-                processedChunks = [{ text: result.text || "", timestamp: [0, audioData.length / 16000] }];
-            } else if (processedChunks.length > 0 && !processedChunks[0].timestamp) {
-                // If the model didn't return timestamps, try to estimate them
-                const totalDuration = audioData.length / 16000;
-                const timePerChunk = totalDuration / processedChunks.length;
-                processedChunks = processedChunks.map((c: any, i: number) => ({
-                    text: c.text,
-                    timestamp: [i * timePerChunk, (i + 1) * timePerChunk]
-                }));
+            // ── 1. Hallucination detection ──────────────────────────────────
+            // Whisper hallucinates on silence/music by repeating the same word
+            // hundreds of times. Detect runs of 4+ identical texts and discard them.
+            const rawChunks: any[] = result.chunks || [];
+            
+            const isHallucination = (chunks: any[]): boolean => {
+                if (chunks.length < 4) return false;
+                const counts: Record<string, number> = {};
+                for (const c of chunks) {
+                    const key = (c.text || '').trim().toLowerCase();
+                    counts[key] = (counts[key] || 0) + 1;
+                }
+                const total = chunks.length;
+                // If any single word makes up >60% of all chunks → hallucination
+                return Object.values(counts).some(v => v / total > 0.6);
+            };
+
+            // Deduplicate consecutive identical chunks
+            const deduplicateChunks = (chunks: any[]): any[] => {
+                const result: any[] = [];
+                for (let i = 0; i < chunks.length; i++) {
+                    const cur = (chunks[i].text || '').trim().toLowerCase();
+                    const prev = i > 0 ? (chunks[i - 1].text || '').trim().toLowerCase() : null;
+                    if (cur !== prev) {
+                        result.push(chunks[i]);
+                    }
+                }
+                return result;
+            };
+            
+            // ── 2. Build processedChunks ────────────────────────────────────
+            let processedChunks: any[];
+            
+            if (isHallucination(rawChunks)) {
+                console.warn('[Transcriber] Whisper hallüsinasyonu tespit edildi. Chunk\'lar temizleniyor.');
+                // Try to recover from result.text if it differs from hallucinated word
+                const hallWord = (rawChunks[0]?.text || '').trim().toLowerCase();
+                const cleanText = (result.text || '').replace(new RegExp(`(\\s*${hallWord}){3,}`, 'gi'), '').trim();
+                processedChunks = cleanText
+                    ? [{ text: cleanText, timestamp: [0, totalDuration] }]
+                    : [];
+            } else if (!Array.isArray(rawChunks) || rawChunks.length === 0) {
+                // Fall back to sentence-level
+                processedChunks = result.text?.trim()
+                    ? [{ text: result.text.trim(), timestamp: [0, totalDuration] }]
+                    : [];
+            } else {
+                processedChunks = deduplicateChunks(rawChunks);
             }
 
-            // Also normalize individual chunk timestamps if missing or malformed
+            // ── 3. Normalize timestamps ─────────────────────────────────────
+            // Clamp to [0, totalDuration] and fix null/out-of-range values
             processedChunks = processedChunks.map((c: any) => {
                 const ts = Array.isArray(c.timestamp) ? c.timestamp : [null, null];
+                let t0 = typeof ts[0] === 'number' ? ts[0] : null;
+                let t1 = typeof ts[1] === 'number' ? ts[1] : null;
+
+                // Clamp: timestamps must be within [0, totalDuration]
+                if (t0 !== null) t0 = Math.max(0, Math.min(t0, totalDuration));
+                if (t1 !== null) t1 = Math.max(0, Math.min(t1, totalDuration));
+                // Ensure t1 > t0
+                if (t0 !== null && t1 !== null && t1 <= t0) t1 = Math.min(t0 + 0.3, totalDuration);
+
                 return {
-                    text: c.text?.trim() || "",
-                    timestamp: [
-                        typeof ts[0] === 'number' ? ts[0] : null,
-                        typeof ts[1] === 'number' ? ts[1] : null
-                    ]
+                    text: c.text?.trim() || '',
+                    timestamp: [t0, t1]
                 };
-            });
+            }).filter((c: any) => c.text.length > 0);
+
+            console.log('[Transcriber] Final chunk sayısı:', processedChunks.length,
+                processedChunks.slice(0, 3).map((c: any) => `"${c.text}" [${c.timestamp[0]}s-${c.timestamp[1]}s]`));
 
             const assContent = generateAssSubtitle(processedChunks);
             self.postMessage({ status: 'done', assContent, chunks: processedChunks });
         } catch (err: any) {
+            console.error('[Transcriber] HATA:', err);
             self.postMessage({ status: 'error', error: err?.message || err?.toString() });
         }
     }
 });
+
 
 // Helper to escape ASS subtitle format characters
 const escapeAss = (text: string) => {
