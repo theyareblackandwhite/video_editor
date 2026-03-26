@@ -44,6 +44,8 @@ export const ShortsCreator: React.FC = () => {
     const [captionStatus, setCaptionStatus] = useState<'idle' | 'generating' | 'done'>('idle');
     const [captionProgress, setCaptionProgress] = useState(0);
     const [captionFileName, setCaptionFileName] = useState('');
+    const [currentCropWidth, setCurrentCropWidth] = useState<number>(320);
+    const [currentCropLeft, setCurrentCropLeft] = useState<number>(0);
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const cropBoxRef = useRef<HTMLDivElement>(null);
@@ -102,7 +104,7 @@ export const ShortsCreator: React.FC = () => {
                 // Create a dummy File object for local state compatibility
                 const rawName = path ? path.match(/[^\\\\/]+$/)?.[0] : undefined;
                 const file = { name: rawName || 'video.mp4', path } as any;
-                
+
                 setShortsVideoFile(file);
                 setShortsVideoUrl(assetUrl);
                 setStatus('idle');
@@ -177,10 +179,22 @@ export const ShortsCreator: React.FC = () => {
                         targetCrop.x = (videoW - targetCrop.w) / 2;
                         targetCrop.y = (videoH - targetCrop.h) / 2;
                     }
-                    box.style.width = `${targetCrop.w * scale}px`;
-                    box.style.height = `${targetCrop.h * scale}px`;
-                    box.style.left = `${offsetX + targetCrop.x * scale}px`;
-                    box.style.top = `${offsetY + targetCrop.y * scale}px`;
+                    const cropW = targetCrop.w * scale;
+                    const cropH = targetCrop.h * scale;
+                    const left = offsetX + targetCrop.x * scale;
+                    const top = offsetY + targetCrop.y * scale;
+                    
+                    box.style.width = `${cropW}px`;
+                    box.style.height = `${cropH}px`;
+                    box.style.left = `${left}px`;
+                    box.style.top = `${top}px`;
+                    
+                    if (Math.abs(currentCropWidth - cropW) > 1) {
+                        setCurrentCropWidth(cropW);
+                    }
+                    if (Math.abs(currentCropLeft - left) > 1) {
+                        setCurrentCropLeft(left);
+                    }
                 }
             }
             rafRef.current = requestAnimationFrame(updateCropBox);
@@ -220,34 +234,54 @@ export const ShortsCreator: React.FC = () => {
     const generateCaptionPreview = async () => {
         if (!shortsVideoUrl) return;
         setCaptionStatus('generating');
-        
+
         try {
             const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
-            
+
             // Extract audio as float32 mono for Whisper (16kHz)
             // Only extract the selected segment to speed up transcription
             const float32Data = await decodeToMono(nativePath, 16000, endTime - startTime, startTime);
 
             const worker = new Worker(new URL('../utils/transcriber.ts', import.meta.url), { type: 'module' });
             worker.onerror = (e) => console.error('[Caption] Worker error:', e.message, e);
-            
+
             await new Promise<void>((resolve, reject) => {
                 worker.onmessage = async (e) => {
                     if (e.data.status === 'loading_model') {
-                        setCaptionProgress(e.data.progress || 0);
-                        setCaptionFileName(e.data.file || '');
+                        // Keep loading within 0-40% range
+                        const loadProgress = (e.data.progress || 0) * 0.4;
+                        setCaptionProgress(loadProgress);
+                        setCaptionFileName(`Yapay Zeka Hazırlanıyor: ${e.data.file || 'Model'}`);
                     } else if (e.data.status === 'ready') {
-                        setCaptionProgress(0);
+                        // Jump to 45% when ready
+                        setCaptionProgress(45);
+                        setCaptionFileName('Ses dalgaları analiz ediliyor...');
                         worker.postMessage({ type: 'transcribe', audioData: float32Data });
                     } else if (e.data.status === 'processing') {
-                        setCaptionProgress(100);
-                        setCaptionFileName('İşleniyor...');
+                        setCaptionProgress(55);
+                        setCaptionFileName('Konuşmalar tanımlanıyor...');
+                        // Smoothly increment to make it feel alive
+                        const interval = setInterval(() => {
+                            setCaptionProgress(prev => {
+                                if (prev >= 98) {
+                                    clearInterval(interval);
+                                    return 98;
+                                }
+                                return prev + (Math.random() * 2);
+                            });
+                        }, 800);
+                        (worker as any)._interval = interval;
                     } else if (e.data.status === 'done') {
-                        setCaptionChunks(e.data.chunks || []);
+                        if ((worker as any)._interval) clearInterval((worker as any)._interval);
+                        setCaptionFileName('Altyazılar yerleştiriliyor...');
                         setCaptionProgress(100);
-                        worker.terminate();
-                        resolve();
+                        setCaptionChunks(e.data.chunks || []);
+                        setTimeout(() => {
+                            worker.terminate();
+                            resolve();
+                        }, 500);
                     } else if (e.data.status === 'error') {
+                        if ((worker as any)._interval) clearInterval((worker as any)._interval);
                         console.error('[Caption] Worker error:', e.data.error);
                         worker.terminate();
                         reject(new Error(e.data.error));
@@ -327,7 +361,7 @@ export const ShortsCreator: React.FC = () => {
 
             // Use system path if available, otherwise fallback to url (which will likely fail FFmpeg if it's a blob)
             const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
-            
+
             if (nativePath.startsWith('blob:')) {
                 alert('Lütfen Shorts videonuzu "Video Seç" butonuna (Tauri native file picker) tıklayarak yükleyin. Sürükle-bırak yöntemi masaüstü dışa aktarımında şu an desteklenmemektedir.');
                 return;
@@ -389,7 +423,7 @@ export const ShortsCreator: React.FC = () => {
 
             // Create command
             const cmd = Command.create('ffmpeg', args);
-            
+
             // Execute with stderr tracking
             cmd.stderr.on('data', (line) => {
                 const match = line.match(/time=\s*(\d+):(\d+):(\d+\.\d+)/);
@@ -606,10 +640,17 @@ export const ShortsCreator: React.FC = () => {
                                     </div>
                                 </button>
 
-                                {/* Caption Overlay */}
+                                {/* Caption Overlay — perfectly synced with crop box position */}
                                 {enableCaptions && captionChunks.length > 0 && (
-                                    <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center z-20 pb-48">
-                                        <CaptionRenderer chunks={captionChunks} videoRef={videoRef} startTime={startTime} />
+                                    <div 
+                                        className="absolute pointer-events-none flex flex-col items-center z-20 pb-12"
+                                        style={{
+                                            left: `${currentCropLeft}px`,
+                                            width: `${currentCropWidth}px`,
+                                            bottom: 0
+                                        }}
+                                    >
+                                        <CaptionRenderer chunks={captionChunks} videoRef={videoRef} startTime={startTime} maxWidth={currentCropWidth} />
                                     </div>
                                 )}
 
@@ -739,7 +780,7 @@ export const ShortsCreator: React.FC = () => {
                                             >
                                                 {captionStatus === 'generating' ? 'Altyazılar Oluşturuluyor...' : 'Altyazıları Göster'}
                                             </button>
-                                            
+
                                             {captionStatus === 'generating' && (
                                                 <div className="space-y-1.5 animate-in fade-in duration-300">
                                                     <div className="flex justify-between text-[9px] font-bold uppercase tracking-tighter text-blue-400/70">
@@ -747,7 +788,7 @@ export const ShortsCreator: React.FC = () => {
                                                         <span>%{Math.round(captionProgress)}</span>
                                                     </div>
                                                     <div className="w-full bg-blue-500/10 h-1 rounded-full overflow-hidden">
-                                                        <div 
+                                                        <div
                                                             className="bg-blue-500 h-full transition-all duration-300 ease-out"
                                                             style={{ width: `${captionProgress}%` }}
                                                         />
@@ -874,13 +915,13 @@ export const ShortsCreator: React.FC = () => {
 };
 
 // Real-Time Preview Caption Renderer
-const CaptionRenderer: React.FC<{ chunks: any[], videoRef: React.RefObject<HTMLVideoElement | null>, startTime: number }> = ({ chunks, videoRef, startTime }) => {
-    const [currentLine, setCurrentLine] = useState<{word: string, isHighlight: boolean}[]>([]);
+const CaptionRenderer: React.FC<{ chunks: any[], videoRef: React.RefObject<HTMLVideoElement | null>, startTime: number, maxWidth?: number }> = ({ chunks, videoRef, startTime, maxWidth = 320 }) => {
+    const [currentLine, setCurrentLine] = useState<{ word: string, isHighlight: boolean }[]>([]);
 
     useEffect(() => {
         const lines: { start: number, end: number, words: { text: string, start: number, end: number }[] }[] = [];
         let curLine: any[] = [];
-        
+
         let lastEnd = startTime;
 
         for (const c of chunks) {
@@ -915,8 +956,8 @@ const CaptionRenderer: React.FC<{ chunks: any[], videoRef: React.RefObject<HTMLV
         const update = () => {
             if (videoRef.current) {
                 const t = videoRef.current.currentTime;
-                const line = lines.find(l => t >= l.start - 0.2 && t <= l.end + 0.2); 
-                
+                const line = lines.find(l => t >= l.start - 0.2 && t <= l.end + 0.2);
+
                 if (line) {
                     const display = line.words.map((w) => {
                         // determine the active word dynamically (first word where time <= end)
@@ -927,12 +968,12 @@ const CaptionRenderer: React.FC<{ chunks: any[], videoRef: React.RefObject<HTMLV
                             isHighlight
                         };
                     });
-                    
+
                     // Fallback to highlighting first word if none match exactly but time is within line
                     if (!display.some(w => w.isHighlight) && display.length > 0) {
                         display[0].isHighlight = true;
                     }
-                    
+
                     setCurrentLine(display);
                 } else {
                     setCurrentLine([]);
@@ -944,23 +985,49 @@ const CaptionRenderer: React.FC<{ chunks: any[], videoRef: React.RefObject<HTMLV
         return () => cancelAnimationFrame(rafId);
     }, [chunks, videoRef, startTime]);
 
-    if(currentLine.length === 0) return null;
+    if (currentLine.length === 0) return null;
 
     return (
-        <div className="flex gap-2 flex-wrap justify-center text-center px-8" style={{ textShadow: '0 4px 8px rgba(0,0,0,0.8)' }}>
+        <div
+            style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '2px 6px',
+                justifyContent: 'center',
+                textAlign: 'center',
+                padding: '0 8px',
+                lineHeight: 1.0,
+                width: '100%',
+                maxWidth: `${maxWidth - 20}px`, // Tighter margin
+                margin: '0 auto',
+                wordBreak: 'break-word',
+                overflowWrap: 'break-word',
+            }}
+        >
             {currentLine.map((w, i) => (
-                <span key={i} style={{ 
-                    fontFamily: '"Arial Black", Arial, sans-serif', 
-                    fontSize: '28px',
-                    fontWeight: '900',
-                    color: w.isHighlight ? '#FFD700' : '#FFFFFF',
-                    textTransform: 'uppercase',
-                    WebkitTextStroke: '1px black',
-                    marginRight: '6px'
-                }}>
+                <span
+                    key={i}
+                    style={{
+                        fontFamily: '"Bebas Neue", "Anton", "Arial Black", sans-serif',
+                        fontSize: '24px', // Optimized for vertical 9:16 fit
+                        letterSpacing: '0.01em',
+                        fontWeight: '400',
+                        color: w.isHighlight ? '#FFE234' : '#FFFFFF',
+                        textTransform: 'uppercase',
+                        WebkitTextStroke: w.isHighlight ? '1px #B8860B' : '1.5px #000000',
+                        paintOrder: 'stroke fill',
+                        textShadow: '0 4px 12px rgba(0,0,0,1)',
+                        transition: 'all 0.1s ease',
+                        display: 'inline-block',
+                        transform: w.isHighlight ? 'scale(1.15)' : 'scale(1)',
+                        zIndex: w.isHighlight ? 1 : 0,
+                        margin: '2px 0'
+                    }}
+                >
                     {w.word}
                 </span>
             ))}
         </div>
     );
 };
+

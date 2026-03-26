@@ -15,6 +15,10 @@ export function safeConvertFileSrc(path: string): string {
     
     if (isTauri()) {
         try {
+            // If it's already a blob or data URL, don't try to convert it
+            if (path.startsWith('blob:') || path.startsWith('data:')) {
+                return path;
+            }
             return convertFileSrc(path);
         } catch (e) {
             console.error('Tauri convertFileSrc failed:', e);

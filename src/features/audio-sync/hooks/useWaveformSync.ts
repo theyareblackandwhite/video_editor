@@ -122,8 +122,6 @@ export function useWaveformSync({
         return () => {
             if (masterWs.current) { masterWs.current.destroy(); masterWs.current = null; }
             if (targetWs.current) { targetWs.current.destroy(); targetWs.current = null; }
-            URL.revokeObjectURL(videoUrl);
-            URL.revokeObjectURL(audioUrl);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [phase, masterVideo?.id, selectedTarget?.id]);
