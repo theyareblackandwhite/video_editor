@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useAppStore } from '../../../app/store';
-import { analyzeVideoForShorts } from '../utils/faceTracker';
+import { analyzeVideoForShorts, interpolateCrop } from '../utils/faceTracker';
 import type { CropCoordinate } from '../utils/faceTracker';
 import type { ShortsClip } from '../../../app/store/types';
 import { captureVideoFrame } from '../../../shared/utils/captureFrame';
@@ -355,8 +355,11 @@ export const ShortsCreator: React.FC = () => {
                 const coords = await analyzeVideoForShorts(shortsVideoUrl, clip.startTime, clip.endTime, (p) => setExportProgress(p * 0.3));
                 if (coords && coords.length > 0) {
                     const cropLines: string[] = [];
-                    coords.forEach((c, i) => {
-                        const nextTime = i < coords.length - 1 ? coords[i + 1].time : clip.endTime;
+                    // Smooth the tracking by interpolating from 5fps to 30fps
+                    const smoothCoords = interpolateCrop(coords, 30);
+                    
+                    smoothCoords.forEach((c, i) => {
+                        const nextTime = i < smoothCoords.length - 1 ? smoothCoords[i + 1].time : clip.endTime;
                         // Adjust times to be relative to the clip start for input-seeking (-ss)
                         const relStart = Math.max(0, c.time - clip.startTime);
                         const relEnd = Math.max(0, nextTime - clip.startTime);
@@ -886,12 +889,19 @@ export const ShortsCreator: React.FC = () => {
                             <div className="pt-4">
                                 <button
                                     onClick={addOrUpdateClip}
-                                    className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-3 hover:bg-gray-800 active:scale-[0.98] transition-all overflow-hidden relative group"
+                                    disabled={status === 'analyzing' || captionStatus === 'generating'}
+                                    className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-3 hover:bg-gray-800 active:scale-[0.98] transition-all overflow-hidden relative group disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <span>
-                                        {editingClipId ? 'Değişiklikleri Kaydet' : 'Shorts Olarak Ekle'}
+                                        {status === 'analyzing' ? 'Analiz Ediliyor...' : 
+                                         captionStatus === 'generating' ? 'Altyazı Oluşturuluyor...' :
+                                         editingClipId ? 'Değişiklikleri Kaydet' : 'Shorts Olarak Ekle'}
                                     </span>
-                                    {editingClipId ? <Check className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+                                    {(status === 'analyzing' || captionStatus === 'generating') ? (
+                                        <Loader2 className="w-5 h-5 animate-spin" />
+                                    ) : (
+                                        editingClipId ? <Check className="w-5 h-5" /> : <Plus className="w-5 h-5" />
+                                    )}
                                 </button>
                                 {editingClipId && (
                                     <button
@@ -907,7 +917,7 @@ export const ShortsCreator: React.FC = () => {
                 </div>
 
                 {/* Clips Gallery Footer */}
-                <div className="h-64 bg-white border-t border-gray-200 p-6 flex flex-col gap-4">
+                <div className="h-80 bg-white border-t border-gray-200 p-6 flex flex-col gap-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <Film className="w-4 h-4 text-purple-600" />
@@ -938,36 +948,36 @@ export const ShortsCreator: React.FC = () => {
                                             className="flex-1 py-1.5 bg-white/90 hover:bg-white rounded-md flex items-center justify-center shadow-sm"
                                             title="Düzenlemek İçin Tıkla"
                                         >
-                                            <Edit2 size={12} className="text-gray-900" />
+                                            <Edit2 size={14} className="text-gray-900" />
                                         </div>
                                         <button
                                             onClick={(e) => { e.stopPropagation(); deleteClip(clip.id, e); }}
                                             className="py-1.5 px-2 bg-red-500/20 hover:bg-red-500/40 rounded-md text-red-500"
                                             title="Sil"
                                         >
-                                            <Trash2 size={12} />
+                                            <Trash2 size={14} />
                                         </button>
                                     </div>
                                     <button
                                         onClick={(e) => { e.stopPropagation(); handleExportClip(clip); }}
                                         disabled={exportingClipId !== null}
-                                        className="w-full py-2 bg-purple-600 hover:bg-purple-500 rounded-md text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-purple-900/40"
+                                        className="w-full py-2 bg-purple-600 hover:bg-purple-500 rounded-md text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-purple-900/40"
                                     >
                                         {exportingClipId === clip.id ? (
                                             <>
-                                                <Loader2 size={12} className="animate-spin" />
+                                                <Loader2 size={14} className="animate-spin" />
                                                 {Math.round(exportProgress * 100)}%
                                             </>
                                         ) : (
                                             <>
-                                                <Download size={12} />
+                                                <Download size={14} />
                                                 İndir
                                             </>
                                         )}
                                     </button>
                                 </div>
 
-                                <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded text-[8px] font-mono text-white/80">
+                                <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-md px-2 py-1 rounded text-[10px] font-mono text-white/80">
                                     {clip.startTime.toFixed(1)}s - {clip.endTime.toFixed(1)}s
                                 </div>
                             </div>
@@ -981,12 +991,19 @@ export const ShortsCreator: React.FC = () => {
                                     setStartTime(videoRef.current?.currentTime || 0);
                                     setEndTime(Math.min(videoRef.current?.duration || 100, (videoRef.current?.currentTime || 0) + 15));
                                 }}
-                                className="h-full aspect-[9/16] rounded-xl border-2 border-dashed border-white/10 hover:border-white/30 hover:bg-white/[0.02] transition-all flex flex-col items-center justify-center gap-3 text-white/20 hover:text-white/40 group flex-shrink-0"
+                                disabled={status === 'analyzing' || captionStatus === 'generating'}
+                                className="h-full aspect-[9/16] rounded-xl border-2 border-dashed border-white/10 hover:border-white/30 hover:bg-white/[0.02] transition-all flex flex-col items-center justify-center gap-3 text-white/20 hover:text-white/40 group flex-shrink-0 disabled:opacity-20 disabled:cursor-not-allowed"
                             >
                                 <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                    <Plus className="w-6 h-6" />
+                                    {(status === 'analyzing' || captionStatus === 'generating') ? (
+                                        <Loader2 className="w-6 h-6 animate-spin" />
+                                    ) : (
+                                        <Plus className="w-6 h-6" />
+                                    )}
                                 </div>
-                                <span className="text-[10px] font-bold uppercase tracking-widest">Yeni Klip</span>
+                                <span className="text-xs font-bold uppercase tracking-widest">
+                                    {status === 'analyzing' || captionStatus === 'generating' ? 'Hazırlanıyor...' : 'Yeni Klip'}
+                                </span>
                             </button>
                         )}
                     </div>

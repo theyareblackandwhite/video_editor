@@ -193,7 +193,7 @@ export async function analyzeVideoForShorts(
                 }
             });
 
-            video.addEventListener('error', (e) => {
+            video.addEventListener('error', (_e) => {
                 console.error("[FaceTracker] Video loaded error:", video.error);
                 reject(new Error("Video loading error: " + (video.error?.message || String(video.error))));
             });
@@ -215,4 +215,39 @@ export async function analyzeVideoForShorts(
         console.error("[FaceTracker] Fatal error:", err);
         throw err;
     }
+}
+
+export function interpolateCrop(coords: CropCoordinate[], targetFps: number = 30): CropCoordinate[] {
+    if (coords.length < 2) return coords;
+    
+    const interpolated: CropCoordinate[] = [];
+    const step = 1 / targetFps;
+
+    for (let i = 0; i < coords.length - 1; i++) {
+        const start = coords[i];
+        const end = coords[i + 1];
+        const duration = end.time - start.time;
+        
+        if (duration <= 0) continue;
+        
+        // Number of frames to insert
+        const numFrames = Math.max(1, Math.round(duration / step));
+        const actualStep = duration / numFrames;
+        
+        for (let j = 0; j < numFrames; j++) {
+            const t = j / numFrames;
+            interpolated.push({
+                time: start.time + (j * actualStep),
+                x: start.x + t * (end.x - start.x),
+                y: start.y + t * (end.y - start.y),
+                w: start.w + t * (end.w - start.w),
+                h: start.h + t * (end.h - start.h)
+            });
+        }
+    }
+    
+    // Add the very last coordinate
+    interpolated.push(coords[coords.length - 1]);
+    
+    return interpolated;
 }
