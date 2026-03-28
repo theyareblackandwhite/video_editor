@@ -469,10 +469,10 @@ export const buildFFmpegCommand = (
             cropFilter = `sendcmd=f='${safePath}',crop=w='trunc(ih*9/16/2)*2':h='trunc(ih/2)*2':x=0:y=0`;
         }
 
-        let vFilter = `${cropFilter}`;
+        let vFilter = `setpts=PTS-STARTPTS,${cropFilter}`;
         if (currentShort.enableCaptions && subtitleFile) {
             const safeSubtitlePath = subtitleFile.replace(/\\/g, '/').replace(/:/g, '\\\\:');
-            vFilter += `,subtitles='${safeSubtitlePath}':fontsdir='/fonts'`;
+            vFilter += `,subtitles='${safeSubtitlePath}':fontsdir='/fonts':force_style='Fontname=sans-serif'`;
         }
 
         // Rescale for performance on web

@@ -27,7 +27,7 @@ export const ShortsCreator: React.FC = () => {
     // Local editor state
     const [startTime, setStartTime] = useState(0);
     const [endTime, setEndTime] = useState(60);
-    const [enableFaceTracker, setEnableFaceTracker] = useState(true);
+    const [enableFaceTracker, setEnableFaceTracker] = useState(false);
     const [enableCaptions, setEnableCaptions] = useState(false);
     const [editingClipId, setEditingClipId] = useState<string | null>(null);
 
@@ -352,7 +352,17 @@ export const ShortsCreator: React.FC = () => {
 
             // Face Tracking analysis if enabled
             if (clip.enableFaceTracker) {
-                const coords = await analyzeVideoForShorts(shortsVideoUrl, clip.startTime, clip.endTime, (p) => setExportProgress(p * 0.3));
+                let coords = clip.coordinates;
+                
+                // Only run analysis if we don't have coordinates already
+                if (!coords || coords.length === 0) {
+                    console.log('[Shorts-Export] Running new face analysis...');
+                    coords = await analyzeVideoForShorts(shortsVideoUrl, clip.startTime, clip.endTime, (p) => setExportProgress(p * 0.3));
+                } else {
+                    console.log('[Shorts-Export] Reusing existing face coordinates (count:', coords.length, ')');
+                    setExportProgress(0.3); // Instantly skip analysis part of progress
+                }
+
                 if (coords && coords.length > 0) {
                     const cropLines: string[] = [];
                     // Smooth the tracking by interpolating from 5fps to 30fps
@@ -471,6 +481,10 @@ export const ShortsCreator: React.FC = () => {
                     subtitleFileContent
                 );
                 
+                if (subtitleFileContent) {
+                    console.log(`[Shorts-Export] Generated subtitles (length: ${subtitleFileContent.length}):\n`, subtitleFileContent.substring(0, 300) + '...');
+                }
+                
                 if (cropFileContent) {
                     console.log('[Shorts-Export] Generated crop.txt:\n', cropFileContent);
                 }
@@ -529,6 +543,7 @@ export const ShortsCreator: React.FC = () => {
             endTime,
             enableFaceTracker,
             enableCaptions,
+            coordinates: enableFaceTracker ? coordinates : [],
             thumbnail
         };
 
@@ -562,7 +577,7 @@ export const ShortsCreator: React.FC = () => {
         setEditingClipId(clip.id);
         setStatus(clip.enableFaceTracker ? 'preview' : 'idle');
         setCaptionStatus(clip.enableCaptions ? 'done' : 'idle');
-        setCoordinates([]);
+        setCoordinates(clip.coordinates || []);
         if (videoRef.current) {
             videoRef.current.currentTime = clip.startTime;
         }

@@ -33,6 +33,7 @@ export interface ShortsClip {
     endTime: number;
     enableFaceTracker: boolean;
     enableCaptions: boolean;
+    coordinates?: any[]; // Face tracking coordinates
     thumbnail?: string; // Base64 thumbnail for the gallery
 }
 

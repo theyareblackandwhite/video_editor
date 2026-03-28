@@ -108,15 +108,33 @@ export async function exportVideoWeb(
 
     // --- Font & Fontconfig Setup for Web ---
     // We use a more robust setup to ensure libass/fontconfig finds the font.
-    const FONT_URL = 'https://raw.githubusercontent.com/google/fonts/main/apache/roboto/Roboto-Bold.ttf';
-    const FONT_NAME = 'Roboto-Bold.ttf';
+    // Primary and fallback font URLs for robustness
+    const FONT_URLS = [
+        'https://unpkg.com/font-roboto@1.1.0/fonts/Roboto-Bold.ttf',
+        'https://cdn.jsdelivr.net/gh/google/fonts@main/apache/roboto/static/Roboto-Bold.ttf',
+        'https://raw.githubusercontent.com/google/fonts/main/apache/roboto/static/Roboto-Bold.ttf'
+    ];
+    const FONT_NAME = 'Roboto.ttf';
     const FONT_FAMILY = 'Roboto';
     
     try {
-        console.log('[FFmpegWeb] Fetching font from:', FONT_URL);
-        const fontRes = await fetch(FONT_URL);
-        if (!fontRes.ok) throw new Error(`Font fetch failed: ${fontRes.status}`);
-        const fontData = new Uint8Array(await fontRes.arrayBuffer());
+        let fontData: Uint8Array | null = null;
+        
+        for (const url of FONT_URLS) {
+            try {
+                console.log('[FFmpegWeb] Attempting to fetch font from:', url);
+                const fontRes = await fetch(url);
+                if (fontRes.ok) {
+                    fontData = new Uint8Array(await fontRes.arrayBuffer());
+                    console.log('[FFmpegWeb] Font fetched successfully from:', url);
+                    break;
+                }
+            } catch (e) {
+                console.warn(`[FFmpegWeb] Failed to fetch font from ${url}, trying next...`);
+            }
+        }
+
+        if (!fontData) throw new Error('All font fetch attempts failed');
         
         // Write font to root and standard font dirs
         console.log('[FFmpegWeb] Writing font file...');
