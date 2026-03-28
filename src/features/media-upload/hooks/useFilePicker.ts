@@ -67,7 +67,10 @@ export const useFilePicker = ({ accept, type }: UseFilePickerOptions): UseFilePi
                     const ext = name.split('.').pop()?.toLowerCase() || '';
                     const mimeType = type === 'video' ? `video/${ext === 'mkv' ? 'x-matroska' : ext}` : `audio/${ext}`;
 
-                    if (size > 0) applyValidation(size);
+                    if (size > 0) {
+                        const validation = applyValidation(size);
+                        if (!validation.ok) return null;
+                    }
                     return { path, name, size, type: mimeType };
                 }
             } else {

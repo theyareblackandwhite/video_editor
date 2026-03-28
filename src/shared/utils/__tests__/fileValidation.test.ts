@@ -57,7 +57,7 @@ describe('validateFileSize', () => {
     });
 
     it('returns error for video above max threshold', () => {
-        const result = validateFileSize(makeFile(FILE_SIZE_LIMITS.VIDEO_MAX_MB + 1), 'video');
+        const result = validateFileSize(makeFile(FILE_SIZE_LIMITS.VIDEO_MAX_MB_WEB + 1), 'video');
         expect(result.ok).toBe(false);
         expect(result.error).toBeDefined();
     });

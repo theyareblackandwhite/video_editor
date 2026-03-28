@@ -7,7 +7,7 @@ import { ShortsCreator } from './features/video-export/components/ShortsCreator'
 import { VideoExport } from './features/video-export';
 import { useAppStore } from './app/store';
 import { useThumbnailStore } from './store/thumbnailSlice';
-import { captureVideoFrame } from './shared/utils/captureFrame';
+import { captureVideoFrame, capturePreviewContainer } from './shared/utils/captureFrame';
 import { ErrorBoundary } from './shared/ui';
 import { StepBar } from './shared/ui';
 import { CheckCircle2 } from 'lucide-react';
@@ -22,7 +22,7 @@ const StepComponents: Record<number, React.FC<any>> = {
 };
 
 function App() {
-  const { currentStep, videoFiles, audioFiles, resetSession, hydrateSession } = useAppStore();
+  const { currentStep, videoFiles, audioFiles, hydrateSession } = useAppStore();
 
   const [displayedStep, setDisplayedStep] = useState(currentStep);
   const [direction, setDirection] = useState<'left' | 'right'>('right');
@@ -179,13 +179,34 @@ function App() {
             {currentStep === 3 && (
               <button
                 onClick={() => {
-                  const videoEl = masterVideoRef.current;
-                  if (videoEl) {
+                  const previewEl = document.getElementById('video-preview-container');
+                  if (previewEl) {
                     try {
-                      const base64 = captureVideoFrame(videoEl);
+                      // Capture the entire layout (including crops, multi-cam)
+                      const base64 = capturePreviewContainer(previewEl);
                       useThumbnailStore.getState().setThumbnailBackground(base64);
                     } catch (err) {
-                      console.error("Auto-capture failed:", err);
+                      console.error("Preview capture failed, falling back to master video:", err);
+                      // Fallback
+                      const videoEl = masterVideoRef.current;
+                      if (videoEl) {
+                        try {
+                          const base64 = captureVideoFrame(videoEl);
+                          useThumbnailStore.getState().setThumbnailBackground(base64);
+                        } catch (fallbackErr) {
+                          console.error("Auto-capture failed:", fallbackErr);
+                        }
+                      }
+                    }
+                  } else {
+                    const videoEl = masterVideoRef.current;
+                    if (videoEl) {
+                      try {
+                        const base64 = captureVideoFrame(videoEl);
+                        useThumbnailStore.getState().setThumbnailBackground(base64);
+                      } catch (err) {
+                        console.error("Auto-capture failed:", err);
+                      }
                     }
                   }
                   useAppStore.getState().setStep(4);

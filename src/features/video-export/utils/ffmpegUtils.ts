@@ -84,8 +84,14 @@ const detectFastExport = (
     masterVideo: MediaFile,
     otherVideos: MediaFile[],
     audioFiles: MediaFile[],
-    cuts: CutSegment[]
+    cuts: CutSegment[],
+    isDesktop: boolean
 ): { isMatch: boolean; reason?: string } => {
+    // Disable fast export on desktop so we can enforce 1080p 60fps and high quality preset
+    if (isDesktop) {
+        return { isMatch: false, reason: "Desktop enforces quality and resolution" };
+    }
+
     const isSingleVideo = otherVideos.length === 0 && masterVideo.syncOffset === 0;
     const hasExternalAudio = config.includeAudio && audioFiles.length > 0;
     const noCuts = !config.applyCuts || cuts.length === 0;
@@ -156,13 +162,20 @@ const composeVideoFilter = (
     videoFiles: MediaFile[],
     masterVideoId: string,
     layoutMode: LayoutMode,
-    filterComplex: string[]
+    filterComplex: string[],
+    isDesktop: boolean
 ): string[] => {
+    const baseRes = isDesktop ? 1080 : 720;
     const otherVideos = videoFiles.filter(v => v.id !== masterVideoId);
     const videoStreams: string[] = [];
 
     if (otherVideos.length === 0) {
-        videoStreams.push('0:v');
+        if (isDesktop) {
+            filterComplex.push(`[0:v]scale=-2:${baseRes}:flags=fast_bilinear[v_scaled_base]`);
+            videoStreams.push('[v_scaled_base]');
+        } else {
+            videoStreams.push('0:v');
+        }
     } else {
         const syncedVideos: string[] = ['[0:v]'];
         otherVideos.forEach((v, i) => {
@@ -200,10 +213,10 @@ const composeVideoFilter = (
                  *    - Default position (centered): 1000 + (scaled_width - 720)/2
                  *    - User offset: Subtracted from default to match CSS translate (x% moves video right, so crop window moves left).
                  */
-                const targetH = 720 * transform.scale;
+                const targetH = baseRes * transform.scale;
                 const padSize = 1000; // Safe margin for panning
-                const outW = 720;
-                const outH = 720;
+                const outW = baseRes;
+                const outH = baseRes;
                 
                 // s_w and s_h are variables in FFmpeg for the scaled input width/height before padding
                 // However, we can use 'iw' and 'ih' inside crop because they refer to the padded input.
@@ -217,8 +230,8 @@ const composeVideoFilter = (
                 
                 filterComplex.push(`${syncedVideos[i]}${filter}[${scaleLabel}]`);
             } else {
-                // Scale mode (Letterbox): Fit within 1280x720 with black bars
-                filterComplex.push(`${syncedVideos[i]}scale=-2:720:flags=fast_bilinear,pad=ih*16/9:ih:(ow-iw)/2:0[${scaleLabel}]`);
+                // Scale mode (Letterbox): Fit within 1280x720 or 1920x1080 with black bars
+                filterComplex.push(`${syncedVideos[i]}scale=-2:${baseRes}:flags=fast_bilinear,pad=ih*16/9:ih:(ow-iw)/2:0[${scaleLabel}]`);
             }
             scaledVideos.push(`[${scaleLabel}]`);
         }
@@ -357,11 +370,15 @@ const applyTrimmingAndTransitions = (
 /**
  * Gets encoding arguments based on format, quality, and OS
  */
-const getEncodingArguments = (config: ExportConfig): string[] => {
+const getEncodingArguments = (config: ExportConfig, isDesktop: boolean): string[] => {
     const args: string[] = ['-threads', '0'];
 
+    if (isDesktop) {
+        args.push('-r', '60');
+    }
+
     if (config.format === 'mp4') {
-        const crf = config.quality === 'high' ? '23' : config.quality === 'medium' ? '28' : '32';
+        const crf = config.quality === 'high' ? (isDesktop ? '18' : '23') : config.quality === 'medium' ? '28' : '32';
         let osType = 'unknown';
         if (typeof navigator !== 'undefined') {
             const ua = navigator.userAgent.toLowerCase();
@@ -445,8 +462,10 @@ export const buildFFmpegCommand = (
 
     const segments = config.applyCuts ? getKeepSegments(cuts, totalDuration) : [{ start: 0, end: totalDuration }];
 
+    const isDesktop = !isWeb;
+
     // 2. Fast Export Detection
-    if (!currentShort && detectFastExport(config, masterVideo, otherVideos, audioFiles, cuts).isMatch && (!shortsConfig || !shortsConfig.isActive)) {
+    if (!currentShort && detectFastExport(config, masterVideo, otherVideos, audioFiles, cuts, isDesktop).isMatch && (!shortsConfig || !shortsConfig.isActive)) {
          args.push('-c:v', 'copy');
          if (!config.includeAudio) args.push('-an');
          else args.push('-c:a', 'copy');
@@ -475,18 +494,18 @@ export const buildFFmpegCommand = (
             // FFmpeg subtitles filter path escaping:
             // 1. Backslashes become forward slashes (FFmpeg prefers this)
             // 2. Colons must be escaped on Windows (e.g., C\:...)
-            // 3. Single quotes must be handled carefully within the filter string
+            // 3. Single quotes must be escaped for the filter parser
             const escapedPath = subtitleFile
                 .replace(/\\/g, '/')
                 .replace(/:/g, '\\\\:')
-                .replace(/'/g, "'\\\\''");
+                .replace(/'/g, "\\\\'");
             
-            // Web/WASM needs fontsdir=/fonts to find the virtual fonts (Roboto.ttf).
+            // Web/WASM needs fontsdir=/fonts to find the virtual fonts
             // Native (Tauri) should NOT have this, as it points to a non-existent path on Mac/Linux.
             const fontsDirOption = isWeb ? ":fontsdir=/fonts" : "";
             
             // force_style ensures font mapping works even if the ASS file style is generic.
-            vFilter += `,subtitles='${escapedPath}'${fontsDirOption}:force_style='Fontname=Roboto Bold'`;
+            vFilter += `,subtitles=filename='${escapedPath}'${fontsDirOption}:force_style='Fontname=Roboto Bold'`;
         }
 
         // Rescale for performance on web, ensuring even dimensions for libx264
@@ -499,7 +518,7 @@ export const buildFFmpegCommand = (
 
     } else {
         // STANDARD EXPORT PATH
-        const videoStreams = composeVideoFilter(videoFiles, masterVideoId, config.layoutMode, filterComplex);
+        const videoStreams = composeVideoFilter(videoFiles, masterVideoId, config.layoutMode, filterComplex, isDesktop);
         const audioInputOffset = 1 + otherVideos.length;
         const finalAudioSource = composeAudioFilter(audioFiles, audioInputOffset, config.includeAudio, filterComplex);
 
@@ -513,8 +532,9 @@ export const buildFFmpegCommand = (
 
         if (config.borderRadius > 0) {
             const roundedLabel = '[v_rounded]';
-            const w = config.layoutMode === 'crop' ? 720 * videoFiles.length : 1280;
-            const h = 720;
+            const baseRes = isDesktop ? 1080 : 720;
+            const w = config.layoutMode === 'crop' ? baseRes * videoFiles.length : Math.round(baseRes * 16 / 9);
+            const h = baseRes;
             if (overlayMaskPath) {
                 const maskInputIdx = 1 + otherVideos.length + (config.includeAudio ? audioFiles.length : 0);
                 filterComplex.push(`[${maskInputIdx}:v]scale=${w}:${h}[mask]`);
@@ -538,7 +558,7 @@ export const buildFFmpegCommand = (
         args.push('-filter_complex', filterComplex.join(';'));
     }
     args.push('-map', mappingVideo, '-map', mappingAudio);
-    args.push(...getEncodingArguments(config));
+    args.push(...getEncodingArguments(config, isDesktop));
     args.push(outputPath);
 
     return args;

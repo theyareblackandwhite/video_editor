@@ -99,14 +99,15 @@ describe('useAppStore', () => {
             }
         };
 
-        useAppStore.setState({ 
-            projects: [project], 
-            currentProjectId: projectId,
-            currentStep: 1,
-            cuts: []
+        // @ts-ignore
+        useAppStore.setState({
+            // @ts-ignore
+            projects: [project],
+            currentProjectId: projectId
         });
         
-        // Run hydration
+        // Try to hydrate the project
+        // @ts-ignore
         await useAppStore.getState().hydrateProject(projectId);
         
         const state = useAppStore.getState();

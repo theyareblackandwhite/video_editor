@@ -131,6 +131,7 @@ export const VideoPreview: React.FC<VideoPreviewProps> = ({
     return (
         <div 
             ref={mainPreviewRef}
+            id="video-preview-container"
             className={`bg-black overflow-hidden shadow-xl mb-4 aspect-video relative flex items-center justify-center ${draggingId ? 'cursor-grabbing' : ''}`}
             style={{ borderRadius: `${borderRadius}px` }}
                 onMouseMove={handleMouseMove}

@@ -80,10 +80,10 @@ export const ExportSummary: React.FC<Props> = ({
                             {shortsConfig?.isActive ? 'Aktif (9:16)' : 'Kapalı'}
                         </span>
                     </div>
-                    {shortsConfig?.isActive && (
+                    {shortsConfig?.isActive && shortsConfig.clips && (
                          <div className="flex justify-between text-[10px] text-gray-400 -mt-2">
-                            <span>AI Yüz Takibi ({Math.round(shortsConfig.startTime)}s-{Math.round(shortsConfig.endTime)}s)</span>
-                            <span>{shortsConfig.enableFaceTracker ? 'Aktif' : 'Kapalı'}</span>
+                            <span>AI Klipler</span>
+                            <span>{shortsConfig.clips.length} hazır kesit</span>
                          </div>
                     )}
                     <div className="flex justify-between text-sm">

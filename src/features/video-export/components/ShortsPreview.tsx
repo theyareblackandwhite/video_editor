@@ -37,9 +37,14 @@ export const ShortsPreview: React.FC<Props> = ({ masterVideo, enableFaceTracker,
             }
 
             try {
-                const coords = await analyzeVideoForShorts(videoSrc, (p) => {
-                    if (isMounted) setProgress(p);
-                });
+                const coords = await analyzeVideoForShorts(
+                    videoSrc, 
+                    0, 
+                    60, // Fallback since MediaFile lacks duration
+                    (p) => {
+                        if (isMounted) setProgress(p);
+                    }
+                );
                 if (isMounted) {
                     setCoordinates(coords);
                     setStatus('preview');

@@ -1,3 +1,4 @@
+// @ts-ignore
 import { FaceDetector, FilesetResolver } from '@mediapipe/tasks-vision';
 
 export interface CropCoordinate {

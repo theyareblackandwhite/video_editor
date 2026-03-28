@@ -1,4 +1,5 @@
 import { formatFileSize } from './format';
+import { isTauri } from './tauri';
 
 /**
  * File size validation and memory estimation utilities.
@@ -9,8 +10,9 @@ import { formatFileSize } from './format';
 
 /* ── Limits (MB) ── */
 export const FILE_SIZE_LIMITS = {
-    VIDEO_WARN_MB: 500,
-    VIDEO_MAX_MB: 2048,
+    VIDEO_WARN_MB: 1024, // Increased from 500MB to 1GB
+    VIDEO_MAX_MB_WEB: 2048,
+    VIDEO_MAX_MB_TAURI: 10240, // 10GB for Desktop
     AUDIO_WARN_MB: 200,
     AUDIO_MAX_MB: 1024,
 } as const;
@@ -49,14 +51,23 @@ export function validateFileSize(
     type: 'video' | 'audio'
 ): FileSizeValidation {
     const sizeMB = size / MB;
-    const maxMB = type === 'video' ? FILE_SIZE_LIMITS.VIDEO_MAX_MB : FILE_SIZE_LIMITS.AUDIO_MAX_MB;
+    
+    let maxMB: number;
+    if (type === 'video') {
+        maxMB = isTauri() 
+            ? FILE_SIZE_LIMITS.VIDEO_MAX_MB_TAURI 
+            : FILE_SIZE_LIMITS.VIDEO_MAX_MB_WEB;
+    } else {
+        maxMB = FILE_SIZE_LIMITS.AUDIO_MAX_MB;
+    }
+
     const warnMB = type === 'video' ? FILE_SIZE_LIMITS.VIDEO_WARN_MB : FILE_SIZE_LIMITS.AUDIO_WARN_MB;
     const label = type === 'video' ? 'Video' : 'Ses';
 
     if (sizeMB > maxMB) {
         return {
             ok: false,
-            error: `${label} dosyası çok büyük (${formatFileSize(size)}). Maksimum izin verilen boyut ${formatFileSize(maxMB * MB)}. Lütfen daha küçük bir dosya seçin.`,
+            error: `${label} dosyası çok büyük (${formatFileSize(size)}). ${isTauri() ? 'Masaüstü' : 'Tarayıcı'} için maksimum izin verilen boyut ${formatFileSize(maxMB * MB)}. Lütfen daha küçük bir dosya seçin.`,
         };
     }
 

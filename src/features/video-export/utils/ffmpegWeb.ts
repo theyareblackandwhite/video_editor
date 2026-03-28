@@ -114,8 +114,8 @@ export async function exportVideoWeb(
         'https://cdn.jsdelivr.net/gh/google/fonts@main/apache/roboto/static/Roboto-Bold.ttf',
         'https://raw.githubusercontent.com/google/fonts/main/apache/roboto/static/Roboto-Bold.ttf'
     ];
-    const FONT_NAME = 'Roboto.ttf';
-    const FONT_FAMILY = 'Roboto';
+    const FONT_NAME = 'Roboto-Bold.ttf';
+    const FONT_FAMILY = 'Roboto Bold';
     
     try {
         let fontData: Uint8Array | null = null;
@@ -136,11 +136,12 @@ export async function exportVideoWeb(
 
         if (!fontData) throw new Error('All font fetch attempts failed');
         
-        // Write font to root and standard font dirs
+        // Write font to root and standard font dirs.
+        // We use new Uint8Array() to prevent DataCloneError (ArrayBuffer detachment during postMessage).
         console.log('[FFmpegWeb] Writing font file...');
-        await ffmpeg.writeFile(FONT_NAME, fontData);
+        await ffmpeg.writeFile(FONT_NAME, new Uint8Array(fontData));
         await ffmpeg.createDir('/fonts').catch(() => {});
-        await ffmpeg.writeFile(`/fonts/${FONT_NAME}`, fontData);
+        await ffmpeg.writeFile(`/fonts/${FONT_NAME}`, new Uint8Array(fontData));
         
         // Create a robust fonts.conf
         // IMPORTANT: We do NOT include <dir>/</dir> here because it causes libass 
