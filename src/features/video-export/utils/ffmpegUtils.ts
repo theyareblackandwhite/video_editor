@@ -472,7 +472,7 @@ export const buildFFmpegCommand = (
         let vFilter = `${cropFilter}`;
         if (currentShort.enableCaptions && subtitleFile) {
             const safeSubtitlePath = subtitleFile.replace(/\\/g, '/').replace(/:/g, '\\\\:');
-            vFilter += `,subtitles='${safeSubtitlePath}':fontsdir='/'`;
+            vFilter += `,subtitles='${safeSubtitlePath}':fontsdir='/fonts'`;
         }
 
         // Rescale for performance on web

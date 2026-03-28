@@ -125,10 +125,11 @@ export async function exportVideoWeb(
         await ffmpeg.writeFile(`/fonts/${FONT_NAME}`, fontData);
         
         // Create a robust fonts.conf
+        // IMPORTANT: We do NOT include <dir>/</dir> here because it causes libass 
+        // to scan massive video files as if they were fonts, leading to OOM.
         const fontsConf = `<?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
 <fontconfig>
-  <dir>/</dir>
   <dir>/fonts</dir>
   <dir>/tmp</dir>
   <cachedir>/tmp/fontconfig</cachedir>
@@ -170,6 +171,10 @@ export async function exportVideoWeb(
             
             console.log(`[FFmpegWeb] Writing video file ${virtualName} (${(data.length / (1024 * 1024)).toFixed(1)} MB)...`);
             await ffmpeg.writeFile(virtualName, data);
+            
+            // CRITICAL for large files: Clear the JS reference immediately to free memory for WASM heap
+            (data as any) = null; 
+            
             return virtualName;
         };
 
