@@ -2,6 +2,7 @@ import type { StateCreator } from 'zustand';
 import type { AppState } from '../../../app/store';
 import type { MediaFile } from '../../../app/store/types';
 import { mediaStorage } from '../../../app/store/mediaStorage';
+import { isTauri } from '../../../shared/utils/tauri';
 
 export interface MediaSlice {
     videoFiles: MediaFile[];
@@ -23,8 +24,8 @@ export const createMediaSlice: StateCreator<AppState, [], [], MediaSlice> = (set
         const id = crypto.randomUUID();
         const { file } = fileInfo;
         
-        // Persist to IndexedDB if file is present (web mode)
-        if (file) {
+        // Persist to IndexedDB if file is present AND not running in Tauri
+        if (file && !isTauri()) {
             mediaStorage.saveMediaFile(id, file).catch(err => console.error("Failed to save video file:", err));
         }
 
@@ -58,8 +59,8 @@ export const createMediaSlice: StateCreator<AppState, [], [], MediaSlice> = (set
         const id = crypto.randomUUID();
         const { file } = fileInfo;
         
-        // Persist to IndexedDB if file is present (web mode)
-        if (file) {
+        // Persist to IndexedDB if file is present AND not running in Tauri
+        if (file && !isTauri()) {
             mediaStorage.saveMediaFile(id, file).catch(err => console.error("Failed to save audio file:", err));
         }
 

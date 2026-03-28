@@ -3,6 +3,7 @@ import type { AppState } from './index';
 import type { VideoTransform, ShortsConfig } from './types';
 import { mediaStorage } from './mediaStorage';
 import { validateConsistency } from './middleware/stateValidator';
+import { isTauri } from '../../shared/utils/tauri';
 
 export interface AppSlice {
     currentStep: number;
@@ -72,6 +73,11 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
     hydrateSession: async () => {
         const state = get();
         if (state.videoFiles.length === 0 && state.audioFiles.length === 0) return;
+
+        if (isTauri()) {
+            console.log(`[appSlice] Tauri detected. Skipping binary restoration for IndexedDB...`);
+            return;
+        }
 
         console.log(`[appSlice] Hydrating session with binary restoration...`);
 
