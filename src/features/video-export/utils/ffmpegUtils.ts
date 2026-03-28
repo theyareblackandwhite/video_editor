@@ -210,7 +210,7 @@ const composeVideoFilter = (
                 // To refer to the scaled size (before padding), we use (in_w - 2*padSize).
                 
                 const filter = [
-                    `scale=-1:${targetH}:flags=fast_bilinear`,
+                    `scale=-2:${targetH}:flags=fast_bilinear`,
                     `pad=iw+${padSize * 2}:ih+${padSize * 2}:${padSize}:${padSize}:black`,
                     `crop=${outW}:${outH}:${padSize}+(in_w-${padSize * 2}-${outW})/2-(${transform.x}/100*(in_w-${padSize * 2})):${padSize}+(in_h-${padSize * 2}-${outH})/2-(${transform.y}/100*(in_h-${padSize * 2}))`
                 ].join(',');
@@ -218,7 +218,7 @@ const composeVideoFilter = (
                 filterComplex.push(`${syncedVideos[i]}${filter}[${scaleLabel}]`);
             } else {
                 // Scale mode (Letterbox): Fit within 1280x720 with black bars
-                filterComplex.push(`${syncedVideos[i]}scale=-1:720:flags=fast_bilinear,pad=ih*16/9:ih:(ow-iw)/2:0[${scaleLabel}]`);
+                filterComplex.push(`${syncedVideos[i]}scale=-2:720:flags=fast_bilinear,pad=ih*16/9:ih:(ow-iw)/2:0[${scaleLabel}]`);
             }
             scaledVideos.push(`[${scaleLabel}]`);
         }
@@ -414,22 +414,38 @@ export const buildFFmpegCommand = (
     const masterVideo = videoFiles.find(v => v.id === masterVideoId)!;
     const otherVideos = videoFiles.filter(v => v.id !== masterVideoId);
 
+    const currentShort = activeClip || (shortsConfig?.isActive ? {
+        startTime: (shortsConfig as any).startTime || 0,
+        endTime: (shortsConfig as any).endTime || totalDuration,
+        enableFaceTracker: (shortsConfig as any).enableFaceTracker || false,
+        enableCaptions: (shortsConfig as any).enableCaptions || false,
+    } : null);
+
     // 1. Inputs
-    args.push('-i', masterVideo.path);
-    otherVideos.forEach(v => args.push('-i', v.path));
-    if (config.includeAudio) {
-        audioFiles.forEach(a => args.push('-i', a.path));
+    if (currentShort) {
+        // FAST SEEKING for Shorts: Apply -ss and -t to the input itself
+        args.push('-ss', currentShort.startTime.toString());
+        args.push('-t', (currentShort.endTime - currentShort.startTime).toString());
+        args.push('-i', masterVideo.path);
+        
+        // Note: For shorts, we currently ignore other videos and audio files for simplicity in this path
+    } else {
+        args.push('-i', masterVideo.path);
+        otherVideos.forEach(v => args.push('-i', v.path));
+        if (config.includeAudio) {
+            audioFiles.forEach(a => args.push('-i', a.path));
+        }
     }
 
     // Add mask input if provided
-    if (overlayMaskPath) {
+    if (overlayMaskPath && !currentShort) {
         args.push('-i', overlayMaskPath);
     }
 
     const segments = config.applyCuts ? getKeepSegments(cuts, totalDuration) : [{ start: 0, end: totalDuration }];
 
     // 2. Fast Export Detection
-    if (detectFastExport(config, masterVideo, otherVideos, audioFiles, cuts).isMatch && !activeClip && (!shortsConfig || !shortsConfig.isActive)) {
+    if (!currentShort && detectFastExport(config, masterVideo, otherVideos, audioFiles, cuts).isMatch && (!shortsConfig || !shortsConfig.isActive)) {
          args.push('-c:v', 'copy');
          if (!config.includeAudio) args.push('-an');
          else args.push('-c:a', 'copy');
@@ -439,83 +455,68 @@ export const buildFFmpegCommand = (
     }
 
     // 3. Audio/Video Filter Composition
-    const videoStreams = composeVideoFilter(videoFiles, masterVideoId, config.layoutMode, filterComplex);
-    const audioInputOffset = 1 + otherVideos.length;
-    const finalAudioSource = composeAudioFilter(audioFiles, audioInputOffset, config.includeAudio, filterComplex);
-
-    // 3b. Rounded Corners (applied to the composed video before trimming)
-    let composedVideoStream = videoStreams[0];
-    
-    // 3c. Resolution Capping (important for Web performance)
-    if (maxHeight && !activeClip && (!shortsConfig || !shortsConfig.isActive)) {
-        // Only cap resolution if not doing shorts (shorts have their own resolution logic)
-        const scaleLabel = '[v_capped]';
-        filterComplex.push(`${composedVideoStream}scale=-1:'min(ih,${maxHeight})':flags=fast_bilinear${scaleLabel}`);
-        composedVideoStream = scaleLabel;
-    }
-
-    if (config.borderRadius > 0) {
-        const roundedLabel = '[v_rounded]';
-        // The composed output context width/height
-        const w = config.layoutMode === 'crop' ? 720 * videoFiles.length : 1280;
-        const h = 720;
-        
-        // If we have an overlay mask, it's the last input
-        if (overlayMaskPath) {
-            const maskInputIdx = 1 + otherVideos.length + (config.includeAudio ? audioFiles.length : 0);
-            // Label the mask input
-            filterComplex.push(`[${maskInputIdx}:v]scale=${w}:${h}[mask]`);
-        }
-
-        applyRoundedCornersFilter(composedVideoStream, roundedLabel, w, h, config.borderRadius, filterComplex, overlayMaskPath);
-        composedVideoStream = roundedLabel;
-    }
-
-    // 4. Trimming and Transitions
-    const { outV, outA } = applyTrimmingAndTransitions(config, segments, composedVideoStream, finalAudioSource, filterComplex);
-
-    // 5. Normalization and Shorts Cropping
-    let mappingAudio = `[${outA}]`;
-    if (config.normalizeAudio) {
-        mappingAudio = '[a_out]';
-        filterComplex.push(`[${outA}]loudnorm=I=-16:TP=-1.5:LRA=11${mappingAudio}`);
-    }
-
-    let mappingVideo = `[${outV}]`;
-    
-    // Check if we are exporting a specific short clip (highest priority) or the legacy single short
-    const currentShort = activeClip || (shortsConfig?.isActive ? {
-        startTime: (shortsConfig as any).startTime || 0,
-        endTime: (shortsConfig as any).endTime || totalDuration,
-        enableFaceTracker: (shortsConfig as any).enableFaceTracker || false,
-        enableCaptions: (shortsConfig as any).enableCaptions || false,
-    } : null);
+    let mappingVideo = '';
+    let mappingAudio = '';
 
     if (currentShort) {
+        // SHORTS FILTER PATH: Optimized and direct
         mappingVideo = '[v_shorts_out]';
-        const trimFilter = `trim=start=${currentShort.startTime}:end=${currentShort.endTime},setpts=PTS-STARTPTS`;
-        let cropFilter = `crop=w=ih*9/16:h=ih:x=(iw-iw*9/16)/2:y=0`;
-        
-        if (currentShort.enableFaceTracker) {
-            if (cropFile) {
-                const safePath = cropFile.replace(/\\/g, '/').replace(/:/g, '\\\\:');
-                cropFilter = `sendcmd=f='${safePath}',crop=w=ih*9/16:h=ih:x=0:y=0`;
-            }
-        }
-
-        let currentVideoFilter = `${trimFilter},${cropFilter}`;
-        if (currentShort.enableCaptions) {
-            if (subtitleFile) {
-                const safeSubtitlePath = subtitleFile.replace(/\\/g, '/').replace(/:/g, '\\\\:');
-                currentVideoFilter += `,subtitles='${safeSubtitlePath}'`;
-            }
-        }
-
-        filterComplex.push(`[${outV}]${currentVideoFilter}${mappingVideo}`);
-        
-        const oldAudio = mappingAudio;
         mappingAudio = '[a_shorts_out]';
-        filterComplex.push(`${oldAudio}atrim=start=${currentShort.startTime}:end=${currentShort.endTime},asetpts=PTS-STARTPTS${mappingAudio}`);
+
+        let cropFilter = `crop=w='trunc(ih*9/16/2)*2':h='trunc(ih/2)*2':x='(iw-ow)/2':y=0`;
+        if (currentShort.enableFaceTracker && cropFile) {
+            const safePath = cropFile.replace(/\\/g, '/').replace(/:/g, '\\\\:');
+            cropFilter = `sendcmd=f='${safePath}',crop=w='trunc(ih*9/16/2)*2':h='trunc(ih/2)*2':x=0:y=0`;
+        }
+
+        let vFilter = `${cropFilter}`;
+        if (currentShort.enableCaptions && subtitleFile) {
+            const safeSubtitlePath = subtitleFile.replace(/\\/g, '/').replace(/:/g, '\\\\:');
+            vFilter += `,subtitles='${safeSubtitlePath}':fontsdir='/'`;
+        }
+
+        // Rescale for performance on web
+        if (maxHeight) {
+            vFilter += `,scale=-2:'min(ih,${maxHeight})':flags=fast_bilinear`;
+        }
+
+        filterComplex.push(`[0:v]${vFilter}${mappingVideo}`);
+        filterComplex.push(`[0:a]asetpts=PTS-STARTPTS${mappingAudio}`);
+
+    } else {
+        // STANDARD EXPORT PATH
+        const videoStreams = composeVideoFilter(videoFiles, masterVideoId, config.layoutMode, filterComplex);
+        const audioInputOffset = 1 + otherVideos.length;
+        const finalAudioSource = composeAudioFilter(audioFiles, audioInputOffset, config.includeAudio, filterComplex);
+
+        let composedVideoStream = videoStreams[0];
+        
+        if (maxHeight) {
+            const scaleLabel = '[v_capped]';
+            filterComplex.push(`${composedVideoStream}scale=-2:'min(ih,${maxHeight})':flags=fast_bilinear${scaleLabel}`);
+            composedVideoStream = scaleLabel;
+        }
+
+        if (config.borderRadius > 0) {
+            const roundedLabel = '[v_rounded]';
+            const w = config.layoutMode === 'crop' ? 720 * videoFiles.length : 1280;
+            const h = 720;
+            if (overlayMaskPath) {
+                const maskInputIdx = 1 + otherVideos.length + (config.includeAudio ? audioFiles.length : 0);
+                filterComplex.push(`[${maskInputIdx}:v]scale=${w}:${h}[mask]`);
+            }
+            applyRoundedCornersFilter(composedVideoStream, roundedLabel, w, h, config.borderRadius, filterComplex, overlayMaskPath);
+            composedVideoStream = roundedLabel;
+        }
+
+        const { outV, outA } = applyTrimmingAndTransitions(config, segments, composedVideoStream, finalAudioSource, filterComplex);
+
+        mappingAudio = `[${outA}]`;
+        if (config.normalizeAudio) {
+            mappingAudio = '[a_out]';
+            filterComplex.push(`[${outA}]loudnorm=I=-16:TP=-1.5:LRA=11${mappingAudio}`);
+        }
+        mappingVideo = `[${outV}]`;
     }
 
     // 6. Build final command

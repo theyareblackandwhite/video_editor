@@ -33,8 +33,8 @@ export function validateConsistency(state: any) {
     const errors: string[] = [];
 
     // Rule 1: Step bounds (if currentStep exists)
-    if (state.currentStep !== undefined && (state.currentStep < 1 || state.currentStep > 5)) {
-        errors.push(`Invalid currentStep: ${state.currentStep}. Must be between 1 and 5.`);
+    if (state.currentStep !== undefined && (state.currentStep < 1 || state.currentStep > 6)) {
+        errors.push(`Invalid currentStep: ${state.currentStep}. Must be between 1 and 6.`);
     }
 
     // Rule 2: ID uniqueness for video files (if videoFiles exists)

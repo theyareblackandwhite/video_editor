@@ -1,0 +1,1 @@
+0.000-0.100 [enter] crop x 100; [enter] crop y 200; [enter] crop w 320; [enter] crop h 568

@@ -13,8 +13,8 @@ import {
     Upload, X, Film, Plus, Trash2, Edit2, Check, Download,
     RotateCcw
 } from 'lucide-react';
-import { readFile } from '@tauri-apps/plugin-fs';
 import { decodeToMono } from '../../../shared/utils/audio';
+import { exportVideoWeb } from '../utils/ffmpegWeb';
 
 export const ShortsCreator: React.FC = () => {
     const { shortsConfig, setShortsConfig } = useAppStore();
@@ -218,6 +218,7 @@ export const ShortsCreator: React.FC = () => {
                 abortControllerRef.current.signal
             );
             setCoordinates(coords);
+            setEnableFaceTracker(true);
             setStatus('preview');
             if (videoRef.current) {
                 videoRef.current.currentTime = startTime;
@@ -227,6 +228,7 @@ export const ShortsCreator: React.FC = () => {
             if (err instanceof Error && err.message === 'Aborted') return;
             console.error('Analysis failed:', err);
             alert('Yüz analizi başarısız oldu: ' + err);
+            setEnableFaceTracker(false);
             setStatus('idle');
         }
     };
@@ -291,6 +293,7 @@ export const ShortsCreator: React.FC = () => {
             });
 
             setCaptionStatus('done');
+            setEnableCaptions(true);
             if (videoRef.current) {
                 videoRef.current.currentTime = startTime;
                 videoRef.current.play().catch(console.error);
@@ -298,6 +301,7 @@ export const ShortsCreator: React.FC = () => {
         } catch (err) {
             console.error('[Caption] Error:', err);
             alert("Altyazı oluşturulamadı: " + err);
+            setEnableCaptions(false);
             setCaptionStatus('idle');
         }
     };
@@ -306,13 +310,7 @@ export const ShortsCreator: React.FC = () => {
     const handleExportClip = async (clip: ShortsClip) => {
         if (!shortsVideoUrl) return;
 
-        // Platform Check
         const isTauri = !!(window as any).__TAURI_INTERNALS__;
-        if (!isTauri) {
-            alert('Dışa aktarım (Export) işlemi yüksek performanslı offline FFmpeg gerektirdiği için şimdilik sadece masaüstü uygulamasında desteklenmektedir.');
-            return;
-        }
-
         const videoFiles = useAppStore.getState().videoFiles;
         const layoutMode = useAppStore.getState().layoutMode;
         const transitionType = useAppStore.getState().transitionType;
@@ -329,136 +327,175 @@ export const ShortsCreator: React.FC = () => {
             borderRadius,
         };
 
-        let cropFile: string | undefined = undefined;
-        let subtitleFile: string | undefined = undefined;
-        let tempAudioPath: string | undefined = undefined;
+        setExportingClipId(clip.id);
+        setExportProgress(0);
 
         try {
-            const selectedPath = await save({
-                filters: [{ name: 'Video', extensions: ['mp4'] }],
-                defaultPath: `short_${clip.id.slice(0, 4)}.mp4`
-            });
+            let selectedPath: string | undefined = undefined;
+            if (isTauri) {
+                const result = await save({
+                    filters: [{ name: 'Video', extensions: ['mp4'] }],
+                    defaultPath: `short_${clip.id.slice(0, 4)}.mp4`
+                });
+                if (!result) {
+                    setExportingClipId(null);
+                    return;
+                }
+                selectedPath = result;
+            }
 
-            if (!selectedPath) return;
+            // 1. Prepare Sidecar Data (Crop & Subtitles)
+            let cropFileContent: string | undefined = undefined;
+            let subtitleFileContent: string | undefined = undefined;
+            let cropFilePath: string | undefined = undefined;
+            let subtitleFilePath: string | undefined = undefined;
 
-            setExportingClipId(clip.id);
-            setExportProgress(0);
-
-            // Face Tracking analysis if enabled for this specific clip
+            // Face Tracking analysis if enabled
             if (clip.enableFaceTracker) {
-                const coords = await analyzeVideoForShorts(shortsVideoUrl, clip.startTime, clip.endTime, (p) => setExportProgress(p * 0.5));
+                const coords = await analyzeVideoForShorts(shortsVideoUrl, clip.startTime, clip.endTime, (p) => setExportProgress(p * 0.3));
                 if (coords && coords.length > 0) {
-                    cropFile = selectedPath + '.crop.txt';
-                    const lines = coords.map((c, i) => {
+                    const cropLines: string[] = [];
+                    coords.forEach((c, i) => {
                         const nextTime = i < coords.length - 1 ? coords[i + 1].time : clip.endTime;
-                        return `${c.time.toFixed(3)}-${nextTime.toFixed(3)} [enter] crop x ${Math.round(c.x)}, crop y ${Math.round(c.y)}, crop w ${Math.round(c.w)}, crop h ${Math.round(c.h)};`;
+                        // Adjust times to be relative to the clip start for input-seeking (-ss)
+                        const relStart = Math.max(0, c.time - clip.startTime);
+                        const relEnd = Math.max(0, nextTime - clip.startTime);
+
+                        // Only include if it's a valid interval within the clip range
+                        if (relEnd <= relStart) return;
+
+                        const timeRange = `${relStart.toFixed(3)}-${relEnd.toFixed(3)}`;
+                        // Format: [START-END] [FLAGS] TARGET COMMAND ARG;
+                        // Each line is a separate command entry for FFmpeg parser to be happy
+                        cropLines.push(`${timeRange} [enter] crop x ${Math.floor(c.x)};`);
+                        cropLines.push(`${timeRange} [enter] crop y ${Math.floor(c.y)};`);
+                        cropLines.push(`${timeRange} [enter] crop w ${Math.floor(c.w / 2) * 2};`);
+                        cropLines.push(`${timeRange} [enter] crop h ${Math.floor(c.h / 2) * 2};`);
                     });
-                    await writeTextFile(cropFile, lines.join('\n'));
+                    cropFileContent = cropLines.join('\n');
+                    
+                    if (isTauri && selectedPath) {
+                        cropFilePath = selectedPath + '.crop.txt';
+                        await writeTextFile(cropFilePath, cropFileContent);
+                    }
+                }
+            }
+
+            // Transcription if enabled
+            if (clip.enableCaptions) {
+                const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
+                
+                // For transcription, we always use the web-optimized worker path
+                const float32Data = await decodeToMono(nativePath, 16000, clip.endTime - clip.startTime, clip.startTime);
+                const worker = new Worker(new URL('../utils/transcriber.ts', import.meta.url), { type: 'module' });
+                
+                subtitleFileContent = await new Promise<string>((resolve, reject) => {
+                    worker.onmessage = (e) => {
+                        if (e.data.status === 'ready') {
+                            worker.postMessage({ type: 'transcribe', audioData: float32Data });
+                        } else if (e.data.status === 'done') {
+                            worker.terminate();
+                            resolve(e.data.assContent);
+                        } else if (e.data.status === 'error') {
+                            worker.terminate();
+                            reject(new Error(e.data.error));
+                        }
+                    };
+                    worker.postMessage({ type: 'init' });
+                });
+
+                if (isTauri && selectedPath && subtitleFileContent) {
+                    subtitleFilePath = selectedPath + '.ass';
+                    await writeTextFile(subtitleFilePath, subtitleFileContent);
                 }
             }
 
             const masterVideoId = videoFiles.find(v => v.isMaster)?.id || (videoFiles.length > 0 ? videoFiles[0].id : 'shorts-master');
-
-            // Use system path if available, otherwise fallback to url (which will likely fail FFmpeg if it's a blob)
             const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
+            const dummyMaster: any = { 
+                id: masterVideoId, 
+                path: nativePath, 
+                name: shortsVideoFile?.name || 'shorts.mp4', 
+                type: shortsVideoFile?.type || 'video/mp4', 
+                isMaster: true,
+                file: shortsVideoFile
+            };
 
-            if (nativePath.startsWith('blob:')) {
-                alert('Lütfen Shorts videonuzu "Video Seç" butonuna (Tauri native file picker) tıklayarak yükleyin. Sürükle-bırak yöntemi masaüstü dışa aktarımında şu an desteklenmemektedir.');
-                return;
-            }
-
-            const dummyMaster: any = { id: masterVideoId, path: nativePath, name: 'shorts.mp4', type: 'video/mp4', isMaster: true };
-
-            // Transcription if enabled
-            if (clip.enableCaptions) {
-                tempAudioPath = selectedPath + '.export_cc.wav';
-                const exArgs = [
-                    '-y', '-i', dummyMaster.path,
-                    '-ss', clip.startTime.toString(),
-                    '-t', (clip.endTime - clip.startTime).toString(),
-                    '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
-                    tempAudioPath
-                ];
-                const extractCmd = Command.create('ffmpeg', exArgs);
-                const exResult = await extractCmd.execute();
-                if (exResult.code === 0) {
-                    const rawAudio = await readFile(tempAudioPath);
-                    const audioCtx = new window.AudioContext({ sampleRate: 16000 });
-                    const audioBuffer = await audioCtx.decodeAudioData(rawAudio.buffer.slice(0));
-                    const float32Data = audioBuffer.getChannelData(0);
-
-                    const worker = new Worker(new URL('../utils/transcriber.ts', import.meta.url), { type: 'module' });
-                    await new Promise<void>((resolve, reject) => {
-                        worker.onmessage = async (e) => {
-                            if (e.data.status === 'ready') {
-                                worker.postMessage({ type: 'transcribe', audioData: float32Data });
-                            } else if (e.data.status === 'done') {
-                                subtitleFile = selectedPath + '.ass';
-                                await writeTextFile(subtitleFile, e.data.assContent);
-                                worker.terminate();
-                                resolve();
-                            } else if (e.data.status === 'error') {
-                                worker.terminate();
-                                reject(new Error(e.data.error));
-                            }
-                        };
-                        worker.postMessage({ type: 'init' });
-                    });
+            if (isTauri && selectedPath) {
+                // TAURI PATH: Use native Command
+                if (nativePath.startsWith('blob:')) {
+                    throw new Error('Lütfen Shorts videonuzu "Video Seç" butonuna tıklayarak tekrar yükleyin.');
                 }
-            }
 
-            const args = buildFFmpegCommand(
-                config,
-                [],
-                videoRef.current?.duration || 0,
-                [dummyMaster],
-                [],
-                masterVideoId,
-                selectedPath,
-                cropFile,
-                undefined,
-                clip,
-                subtitleFile
-            );
+                const args = buildFFmpegCommand(
+                    config, [], videoRef.current?.duration || 0, [dummyMaster], [],
+                    masterVideoId, selectedPath, cropFilePath, undefined, clip, subtitleFilePath
+                );
 
-            // Create command
-            const cmd = Command.create('ffmpeg', args);
+                const cmd = Command.create('ffmpeg', args);
+                cmd.stderr.on('data', (line) => {
+                    const match = line.match(/time=\s*(\d+):(\d+):(\d+\.\d+)/);
+                    if (match) {
+                        const h = parseInt(match[1], 10), m = parseInt(match[2], 10), s = parseFloat(match[3]);
+                        const timeInSeconds = h * 3600 + m * 60 + s;
+                        const duration = clip.endTime - clip.startTime;
+                        const p = Math.max(0.01, Math.min(1, timeInSeconds / duration));
+                        setExportProgress(0.3 + p * 0.7);
+                    }
+                });
 
-            // Execute with stderr tracking
-            cmd.stderr.on('data', (line) => {
-                const match = line.match(/time=\s*(\d+):(\d+):(\d+\.\d+)/);
-                if (match) {
-                    const h = parseInt(match[1], 10);
-                    const m = parseInt(match[2], 10);
-                    const s = parseFloat(match[3]);
-                    const timeInSeconds = h * 3600 + m * 60 + s;
-                    const duration = clip.endTime - clip.startTime;
-                    const p = Math.max(0.01, Math.min(1, timeInSeconds / duration));
-                    setExportProgress(clip.enableFaceTracker ? 0.5 + p * 0.5 : p);
+                const result = await cmd.execute();
+                if (result.code !== 0) throw new Error(`FFmpeg failed: ${result.stderr}`);
+                
+                // Cleanup Tauri sidecars
+                if (cropFilePath) await remove(cropFilePath).catch(() => { });
+                if (subtitleFilePath) await remove(subtitleFilePath).catch(() => { });
+
+            } else {
+                // WEB PATH: Use FFmpeg.wasm
+                const resultData = await exportVideoWeb(
+                    config,
+                    dummyMaster,
+                    [dummyMaster],
+                    [],
+                    [],
+                    videoRef.current?.duration || 0,
+                    (p) => setExportProgress(0.3 + p * 0.7),
+                    (log) => console.log('[Shorts-Web-FFmpeg]', log),
+                    undefined,
+                    clip,
+                    cropFileContent,
+                    subtitleFileContent
+                );
+                
+                if (cropFileContent) {
+                    console.log('[Shorts-Export] Generated crop.txt:\n', cropFileContent);
                 }
-            });
 
-            // Log output for debugging
-            cmd.stdout.on('data', line => console.log('FFmpeg stdout:', line));
-
-            const result = await cmd.execute();
-            if (result.code !== 0) throw new Error(`FFmpeg failed: ${result.stderr}`);
+                // Browser Download
+                // Ensure we have a regular ArrayBuffer (SharedArrayBuffer can't always be used in Blob directly)
+                const finalBuffer = (resultData.buffer instanceof SharedArrayBuffer)
+                    ? new Uint8Array(resultData)
+                    : resultData;
+                    
+                const blob = new Blob([finalBuffer as any], { type: 'video/mp4' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `short_${clip.id.slice(0, 4)}.mp4`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
 
             alert('Short başarıyla dışa aktarıldı!');
         } catch (err) {
             console.error('Export failed:', err);
-            const msg = err instanceof Error ? err.message : String(err);
-            if (msg.includes('invoke')) {
-                alert('Tauri IPC hatası: Uygulamanın güncel olduğundan ve masaüstü modunda çalıştığından emin olun.');
-            } else {
-                alert('Dışa aktarım hatası: ' + msg);
-            }
+            alert('Dışa aktarım hatası: ' + (err instanceof Error ? err.message : String(err)));
         } finally {
             setExportingClipId(null);
             setExportProgress(0);
-            if (cropFile) await remove(cropFile).catch(() => { });
-            if (subtitleFile) await remove(subtitleFile).catch(() => { });
-            if (tempAudioPath) await remove(tempAudioPath).catch(() => { });
         }
     };
 
@@ -520,7 +557,8 @@ export const ShortsCreator: React.FC = () => {
         setEnableFaceTracker(clip.enableFaceTracker);
         setEnableCaptions(clip.enableCaptions || false);
         setEditingClipId(clip.id);
-        setStatus('idle');
+        setStatus(clip.enableFaceTracker ? 'preview' : 'idle');
+        setCaptionStatus(clip.enableCaptions ? 'done' : 'idle');
         setCoordinates([]);
         if (videoRef.current) {
             videoRef.current.currentTime = clip.startTime;
@@ -723,7 +761,7 @@ export const ShortsCreator: React.FC = () => {
                                 </div>
                             </section>
 
-                            {/* Face Tracker Toggle */}
+                            {/* Face Tracker Section */}
                             <section className="space-y-4">
                                 <div className="p-4 bg-purple-500/5 rounded-2xl border border-purple-500/10 space-y-4">
                                     <div className="flex items-center justify-between">
@@ -731,72 +769,116 @@ export const ShortsCreator: React.FC = () => {
                                             <Sparkles className="w-3.5 h-3.5" />
                                             <span>AI Yüz Takibi</span>
                                         </div>
-                                        <button
-                                            onClick={() => setEnableFaceTracker(!enableFaceTracker)}
-                                            className={`w-10 h-5 rounded-full p-1 transition-all duration-300 ${enableFaceTracker ? 'bg-purple-600' : 'bg-white/10'}`}
-                                        >
-                                            <div className={`w-3 h-3 bg-white rounded-full transition-transform duration-300 ${enableFaceTracker ? 'translate-x-5' : 'translate-x-0'}`} />
-                                        </button>
+                                        {enableFaceTracker && status === 'preview' && (
+                                            <button 
+                                                onClick={() => {
+                                                    setEnableFaceTracker(false);
+                                                    setStatus('idle');
+                                                    setCoordinates([]);
+                                                }}
+                                                className="p-1 hover:bg-purple-500/20 rounded-lg text-purple-400 transition-colors"
+                                                title="Kaldır"
+                                            >
+                                                <X className="w-3.5 h-3.5" />
+                                            </button>
+                                        )}
                                     </div>
                                     <p className="text-[10px] text-gray-400 leading-relaxed font-medium">
                                         Konuşmacıyı otomatik olarak algılar ve dikey kadrajda ortalar.
                                     </p>
-                                    {enableFaceTracker && (
-                                        <button
-                                            onClick={runAnalysis}
-                                            disabled={status === 'analyzing'}
-                                            className="w-full py-2 bg-purple-600/20 hover:bg-purple-600/40 text-purple-400 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50"
-                                        >
-                                            {status === 'analyzing' ? 'Analiz Ediliyor...' : 'Yüz Analizini Başlat'}
-                                        </button>
-                                    )}
+                                    <button
+                                        onClick={runAnalysis}
+                                        disabled={status === 'analyzing'}
+                                        className={`w-full py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50 flex items-center justify-center gap-2 relative overflow-hidden ${
+                                            status === 'preview' 
+                                            ? 'bg-purple-600 text-white' 
+                                            : 'bg-purple-600/20 hover:bg-purple-600/40 text-purple-400'
+                                        }`}
+                                    >
+                                        {status === 'analyzing' && (
+                                            <div 
+                                                className="absolute inset-y-0 left-0 bg-purple-500/20 transition-all duration-300 pointer-events-none"
+                                                style={{ width: `${progress * 100}%` }}
+                                            />
+                                        )}
+                                        <span className="relative z-10 flex items-center gap-2">
+                                            {status === 'analyzing' ? (
+                                                <>
+                                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                                    Analiz Ediliyor %{Math.round(progress * 100)}
+                                                </>
+                                            ) : status === 'preview' ? (
+                                                <>
+                                                    <Check className="w-3 h-3" />
+                                                    Analiz Tamamlandı
+                                                </>
+                                            ) : (
+                                                'Yüz Analizini Başlat'
+                                            )}
+                                        </span>
+                                    </button>
                                 </div>
                             </section>
 
-                            {/* Auto Captions Toggle */}
+                            {/* Auto Captions Section */}
                             <section className="space-y-4 pt-1">
-                                <div className="p-4 bg-blue-500/5 rounded-2xl border border-blue-500/10 space-y-4">
+                                <div className="p-4 bg-indigo-500/10 rounded-2xl border border-indigo-500/20 space-y-4">
                                     <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2 text-blue-400 text-[10px] font-bold uppercase tracking-widest">
-                                            <span className="font-serif font-black text-sm leading-none bg-blue-400 text-white rounded px-1.5 py-0.5">CC</span>
+                                        <div className="flex items-center gap-2 text-indigo-400 text-[10px] font-bold uppercase tracking-widest">
+                                            <span className="font-serif font-black text-sm leading-none bg-indigo-500 text-white rounded px-1.5 py-0.5">CC</span>
                                             <span>Oto-Altyazı (AI)</span>
                                         </div>
-                                        <button
-                                            onClick={() => setEnableCaptions(!enableCaptions)}
-                                            className={`w-10 h-5 rounded-full p-1 transition-all duration-300 ${enableCaptions ? 'bg-blue-600' : 'bg-white/10'}`}
-                                        >
-                                            <div className={`w-3 h-3 bg-white rounded-full transition-transform duration-300 ${enableCaptions ? 'translate-x-5' : 'translate-x-0'}`} />
-                                        </button>
+                                        {enableCaptions && captionStatus === 'done' && (
+                                            <button
+                                                onClick={() => {
+                                                    setEnableCaptions(false);
+                                                    setCaptionStatus('idle');
+                                                    setCaptionChunks([]);
+                                                }}
+                                                className="p-1 hover:bg-indigo-500/20 rounded-lg text-indigo-400 transition-colors"
+                                                title="Kaldır"
+                                            >
+                                                <X className="w-3.5 h-3.5" />
+                                            </button>
+                                        )}
                                     </div>
                                     <p className="text-[10px] text-gray-400 leading-relaxed font-medium">
                                         Videonuzdaki konuşmaları metne dönüştürür ve dinamik (Hormozi stili) altyazı ekler. Whisper AI modeliyle yerel olarak çalışır.
                                     </p>
-                                    {enableCaptions && (
-                                        <div className="space-y-3">
-                                            <button
-                                                onClick={generateCaptionPreview}
-                                                disabled={captionStatus === 'generating'}
-                                                className="w-full py-2 bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50"
-                                            >
-                                                {captionStatus === 'generating' ? 'Altyazılar Oluşturuluyor...' : 'Altyazıları Göster'}
-                                            </button>
-
+                                    <div className="space-y-3">
+                                        <button
+                                            onClick={generateCaptionPreview}
+                                            disabled={captionStatus === 'generating'}
+                                            className={`w-full py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-50 flex items-center justify-center gap-2 relative overflow-hidden ${
+                                                captionStatus === 'done'
+                                                ? 'bg-indigo-600 text-white'
+                                                : 'bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400'
+                                            }`}
+                                        >
                                             {captionStatus === 'generating' && (
-                                                <div className="space-y-1.5 animate-in fade-in duration-300">
-                                                    <div className="flex justify-between text-[9px] font-bold uppercase tracking-tighter text-blue-400/70">
-                                                        <span className="truncate max-w-[120px]">{captionFileName || 'Hazırlanıyor...'}</span>
-                                                        <span>%{Math.round(captionProgress)}</span>
-                                                    </div>
-                                                    <div className="w-full bg-blue-500/10 h-1 rounded-full overflow-hidden">
-                                                        <div
-                                                            className="bg-blue-500 h-full transition-all duration-300 ease-out"
-                                                            style={{ width: `${captionProgress}%` }}
-                                                        />
-                                                    </div>
-                                                </div>
+                                                <div 
+                                                    className="absolute inset-y-0 left-0 bg-indigo-500/20 transition-all duration-300 pointer-events-none"
+                                                    style={{ width: `${captionProgress}%` }}
+                                                />
                                             )}
-                                        </div>
-                                    )}
+                                            <span className="relative z-10 flex items-center gap-2 truncate px-2">
+                                                {captionStatus === 'generating' ? (
+                                                    <>
+                                                        <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                                                        <span className="truncate">{captionFileName || 'Altyazılar'}</span>
+                                                        <span className="shrink-0">%{Math.round(captionProgress)}</span>
+                                                    </>
+                                                ) : captionStatus === 'done' ? (
+                                                    <>
+                                                        <Check className="w-3 h-3 shrink-0" />
+                                                        Altyazılar Hazır
+                                                    </>
+                                                ) : (
+                                                    'Altyazıları Oluştur'
+                                                )}
+                                            </span>
+                                        </button>
+                                    </div>
                                 </div>
                             </section>
 

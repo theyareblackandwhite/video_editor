@@ -106,6 +106,48 @@ export async function exportVideoWeb(
         ffmpeg.on('log', ({ message }) => onLog(message));
     }
 
+    // --- Font & Fontconfig Setup for Web ---
+    // We use a more robust setup to ensure libass/fontconfig finds the font.
+    const FONT_URL = 'https://raw.githubusercontent.com/google/fonts/main/apache/roboto/Roboto-Bold.ttf';
+    const FONT_NAME = 'Roboto-Bold.ttf';
+    const FONT_FAMILY = 'Roboto';
+    
+    try {
+        console.log('[FFmpegWeb] Fetching font from:', FONT_URL);
+        const fontRes = await fetch(FONT_URL);
+        if (!fontRes.ok) throw new Error(`Font fetch failed: ${fontRes.status}`);
+        const fontData = new Uint8Array(await fontRes.arrayBuffer());
+        
+        // Write font to root and standard font dirs
+        console.log('[FFmpegWeb] Writing font file...');
+        await ffmpeg.writeFile(FONT_NAME, fontData);
+        await ffmpeg.createDir('/fonts').catch(() => {});
+        await ffmpeg.writeFile(`/fonts/${FONT_NAME}`, fontData);
+        
+        // Create a robust fonts.conf
+        const fontsConf = `<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <dir>/</dir>
+  <dir>/fonts</dir>
+  <dir>/tmp</dir>
+  <cachedir>/tmp/fontconfig</cachedir>
+  <match target="pattern">
+    <test qual="any" name="family"><string>sans-serif</string></test>
+    <edit name="family" mode="assign" binding="same"><string>${FONT_FAMILY}</string></edit>
+  </match>
+  <config></config>
+</fontconfig>`;
+        
+        console.log('[FFmpegWeb] Creating font config dirs...');
+        await ffmpeg.createDir('/etc').catch(() => {});
+        await ffmpeg.createDir('/etc/fonts').catch(() => {});
+        await ffmpeg.writeFile('/etc/fonts/fonts.conf', fontsConf);
+        console.log('[FFmpegWeb] Font and fonts.conf written successfully');
+    } catch (fontErr) {
+        console.warn('[FFmpegWeb] Font setup warning:', fontErr);
+    }
+
     try {
         // 1. Prepare files in virtual FS
         // We MUST map long paths/blob URLs to short, valid filenames for FFmpeg CLI
@@ -126,6 +168,7 @@ export async function exportVideoWeb(
                 data = new Uint8Array(await response.arrayBuffer());
             }
             
+            console.log(`[FFmpegWeb] Writing video file ${virtualName} (${(data.length / (1024 * 1024)).toFixed(1)} MB)...`);
             await ffmpeg.writeFile(virtualName, data);
             return virtualName;
         };
@@ -203,6 +246,7 @@ export async function exportVideoWeb(
         });
 
         // 3. Execute
+        if (onLog) onLog(`Executing FFmpeg command: ffmpeg ${filteredArgs.join(' ')}`);
         await ffmpeg.exec(filteredArgs);
 
         // 4. Read result
