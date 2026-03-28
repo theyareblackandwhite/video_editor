@@ -197,7 +197,11 @@ export function useExportProcess({
             if (isTauriEnv) {
                 const safeSubtitle = subtitleFile || undefined;
                 const safeCrop = cropFile || undefined;
-                const args = buildFFmpegCommand(config, cuts, duration, videoFiles, audioFiles, masterVideo.id, selectedPath, safeCrop, shortsConfig, undefined, safeSubtitle);
+                const args = buildFFmpegCommand(
+                    config, cuts, duration, videoFiles, audioFiles, 
+                    masterVideo.id, selectedPath, safeCrop, shortsConfig, 
+                    undefined, safeSubtitle, undefined, undefined, !isTauriEnv
+                );
 
                 const cmd = Command.create('ffmpeg', args);
                 let hasSeenTime = false;

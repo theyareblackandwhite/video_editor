@@ -257,7 +257,8 @@ export async function exportVideoWeb(
             activeClip,
             virtualSubtitlePath,
             virtualMaskPath,
-            720 // Cap height to 720p on web for performance
+            720, // Cap height to 720p on web for performance
+            true // isWeb
         );
 
         // Remove hardware acceleration or platform-specific args if buildFFmpegCommand added them

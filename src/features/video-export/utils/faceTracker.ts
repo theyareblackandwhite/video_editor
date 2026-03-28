@@ -17,7 +17,7 @@ async function initFaceDetector() {
     
     // Set a timeout for Wasm fetch just in case it hangs
     const visionPromise = FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+        "/models/mediapipe"
     );
     
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -29,7 +29,7 @@ async function initFaceDetector() {
 
     faceDetector = await FaceDetector.createFromOptions(vision, {
         baseOptions: {
-            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite",
+            modelAssetPath: "/models/mediapipe/blaze_face_short_range.tflite",
             delegate: "GPU"
         },
         runningMode: "VIDEO",

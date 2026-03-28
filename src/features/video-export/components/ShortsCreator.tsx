@@ -211,16 +211,22 @@ export const ShortsCreator: React.FC = () => {
         setStatus('analyzing');
         setProgress(0);
         try {
-            const coords = await analyzeVideoForShorts(
-                shortsVideoUrl,
-                startTime,
-                endTime,
-                (p) => setProgress(p),
-                abortControllerRef.current.signal
-            );
+            const coords = await analyzeVideoForShorts(shortsVideoUrl, startTime, endTime, (p) => setProgress(p), abortControllerRef.current.signal);
             setCoordinates(coords);
             setEnableFaceTracker(true);
             setStatus('preview');
+            
+            // Auto-Save: If editing a clip, update it immediately
+            if (editingClipId) {
+                setShortsConfig({
+                    clips: clips.map(c => c.id === editingClipId ? { 
+                        ...c, 
+                        enableFaceTracker: true, 
+                        coordinates: coords 
+                    } : c)
+                });
+            }
+
             if (videoRef.current) {
                 videoRef.current.currentTime = startTime;
                 videoRef.current.play().catch(console.error);
@@ -280,6 +286,20 @@ export const ShortsCreator: React.FC = () => {
                         setCaptionProgress(100);
                         setCaptionChunks(e.data.chunks || []);
                         setCurrentAssContent(e.data.assContent || '');
+                        setEnableCaptions(true);
+                        
+                        // Auto-Save: Update the editing clip if one exists
+                        if (editingClipId) {
+                            setShortsConfig({
+                                clips: clips.map(c => c.id === editingClipId ? { 
+                                    ...c, 
+                                    enableCaptions: true, 
+                                    captionChunks: e.data.chunks || [], 
+                                    assContent: e.data.assContent || '' 
+                                } : c)
+                            });
+                        }
+
                         setTimeout(() => {
                             worker.terminate();
                             resolve();
@@ -406,7 +426,7 @@ export const ShortsCreator: React.FC = () => {
                     const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
                     
                     // For transcription, we always use the web-optimized worker path
-                    const float32Data = await decodeToMono(nativePath, 16000, clip.endTime - startTime, startTime);
+                    const float32Data = await decodeToMono(nativePath, 16000, clip.endTime - clip.startTime, clip.startTime);
                     const worker = new Worker(new URL('../utils/transcriber.ts', import.meta.url), { type: 'module' });
                     
                     subtitleFileContent = await new Promise<string>((resolve, reject) => {
@@ -427,6 +447,8 @@ export const ShortsCreator: React.FC = () => {
 
                 if (isTauri && selectedPath && subtitleFileContent) {
                     subtitleFilePath = selectedPath + '.ass';
+                    console.log('[Shorts-Export] Saving subtitle file to:', subtitleFilePath);
+                    console.log('[Shorts-Export] Subtitle content preview (first 200 chars):', subtitleFileContent.substring(0, 200));
                     await writeTextFile(subtitleFilePath, subtitleFileContent);
                 }
             }
@@ -450,8 +472,10 @@ export const ShortsCreator: React.FC = () => {
 
                 const args = buildFFmpegCommand(
                     config, [], videoRef.current?.duration || 0, [dummyMaster], [],
-                    masterVideoId, selectedPath, cropFilePath, undefined, clip, subtitleFilePath
+                    masterVideoId, selectedPath, cropFilePath, undefined, clip, 
+                    subtitleFilePath, undefined, undefined, !isTauri
                 );
+                console.log('[Shorts-Export] Tauri FFmpeg Launching with args:', args.join(' '));
 
                 const cmd = Command.create('ffmpeg', args);
                 cmd.stderr.on('data', (line) => {
@@ -539,9 +563,47 @@ export const ShortsCreator: React.FC = () => {
         let thumbnail = '';
         if (video) {
             try {
-                thumbnail = captureVideoFrame(video);
+                // If face tracking is enabled and we have coordinates, try to capture a cropped thumbnail
+                if (enableFaceTracker && coordinates.length > 0) {
+                    const canvas = document.createElement('canvas');
+                    const time = video.currentTime;
+                    // Find closest coordinate
+                    let closest = coordinates[0];
+                    let minDiff = Infinity;
+                    for (const c of coordinates) {
+                        const diff = Math.abs(c.time - time);
+                        if (diff < minDiff) {
+                            minDiff = diff;
+                            closest = c;
+                        }
+                    }
+                    
+                    canvas.width = closest.w || Math.round(video.videoHeight * 9 / 16);
+                    canvas.height = video.videoHeight;
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        ctx.drawImage(video, closest.x, 0, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+                        thumbnail = canvas.toDataURL('image/jpeg', 0.8);
+                    } else {
+                        thumbnail = captureVideoFrame(video);
+                    }
+                } else {
+                    // Fallback to center crop for thumbnail even if face tracker is off
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.round(video.videoHeight * 9 / 16);
+                    canvas.height = video.videoHeight;
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        const x = (video.videoWidth - canvas.width) / 2;
+                        ctx.drawImage(video, x, 0, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+                        thumbnail = canvas.toDataURL('image/jpeg', 0.8);
+                    } else {
+                        thumbnail = captureVideoFrame(video);
+                    }
+                }
             } catch (e) {
                 console.error("Thumbnail capture failed", e);
+                thumbnail = '';
             }
         }
 
@@ -556,7 +618,10 @@ export const ShortsCreator: React.FC = () => {
             assContent: enableCaptions ? currentAssContent : '',
             thumbnail
         };
-
+        
+        // Auto-Generate thumbnail if it looks like the main video (simulated for now)
+        // or just rely on the existing thumbnail captured from the player.
+        
         if (editingClipId) {
             setShortsConfig({
                 clips: clips.map(c => c.id === editingClipId ? newClip : c)
@@ -974,6 +1039,16 @@ export const ShortsCreator: React.FC = () => {
                                         <Film className="w-6 h-6 text-gray-300" />
                                     </div>
                                 )}
+
+                                {/* Status Badges */}
+                                <div className="absolute top-2 right-2 flex gap-1">
+                                    {clip.enableCaptions && (
+                                        <div className="bg-indigo-600 text-white text-[8px] font-black px-1 rounded shadow-sm">CC</div>
+                                    )}
+                                    {clip.enableFaceTracker && (
+                                        <div className="bg-purple-600 text-white text-[8px] p-0.5 rounded shadow-sm"><Sparkles size={8} /></div>
+                                    )}
+                                </div>
 
                                 {/* Action HUD */}
                                 <div className="absolute inset-0 bg-gradient-to-t from-gray-900/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2 gap-2">

@@ -406,7 +406,8 @@ export const buildFFmpegCommand = (
     activeClip?: ShortsClip,
     subtitleFile?: string,
     overlayMaskPath?: string,
-    maxHeight?: number
+    maxHeight?: number,
+    isWeb?: boolean
 ): string[] => {
     const args: string[] = ['-y', '-nostdin'];
     const filterComplex: string[] = [];
@@ -471,11 +472,21 @@ export const buildFFmpegCommand = (
 
         let vFilter = `setpts=PTS-STARTPTS,${cropFilter}`;
         if (currentShort.enableCaptions && subtitleFile) {
-            // For both Web and Tauri, ensure path is properly escaped for FFmpeg filter syntax
-            const escapedPath = subtitleFile.replace(/\\/g, '/').replace(/:/g, '\\\\:');
-            // We use fontsdir for Tauri and force_style for generic mapping. 
-            // On web, fonts.conf should handle mapping sans-serif to Roboto.
-            vFilter += `,subtitles='${escapedPath}':fontsdir='/fonts':force_style='Fontname=sans-serif'`;
+            // FFmpeg subtitles filter path escaping:
+            // 1. Backslashes become forward slashes (FFmpeg prefers this)
+            // 2. Colons must be escaped on Windows (e.g., C\:...)
+            // 3. Single quotes must be handled carefully within the filter string
+            const escapedPath = subtitleFile
+                .replace(/\\/g, '/')
+                .replace(/:/g, '\\\\:')
+                .replace(/'/g, "'\\\\''");
+            
+            // Web/WASM needs fontsdir=/fonts to find the virtual fonts (Roboto.ttf).
+            // Native (Tauri) should NOT have this, as it points to a non-existent path on Mac/Linux.
+            const fontsDirOption = isWeb ? ":fontsdir=/fonts" : "";
+            
+            // force_style ensures font mapping works even if the ASS file style is generic.
+            vFilter += `,subtitles='${escapedPath}'${fontsDirOption}:force_style='Fontname=Roboto Bold'`;
         }
 
         // Rescale for performance on web, ensuring even dimensions for libx264
