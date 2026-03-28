@@ -41,6 +41,7 @@ export const ShortsCreator: React.FC = () => {
     const [exportProgress, setExportProgress] = useState(0);
 
     const [captionChunks, setCaptionChunks] = useState<any[]>([]);
+    const [currentAssContent, setCurrentAssContent] = useState<string>('');
     const [captionStatus, setCaptionStatus] = useState<'idle' | 'generating' | 'done'>('idle');
     const [captionProgress, setCaptionProgress] = useState(0);
     const [captionFileName, setCaptionFileName] = useState('');
@@ -131,7 +132,7 @@ export const ShortsCreator: React.FC = () => {
         const handlePlay = () => setIsPlaying(true);
         const handlePause = () => setIsPlaying(false);
         const handleTimeUpdate = () => {
-            if (video.currentTime > endTime) {
+            if (video.currentTime > endTime && isFinite(startTime)) {
                 video.currentTime = startTime;
             }
         };
@@ -278,6 +279,7 @@ export const ShortsCreator: React.FC = () => {
                         setCaptionFileName('Altyazılar yerleştiriliyor...');
                         setCaptionProgress(100);
                         setCaptionChunks(e.data.chunks || []);
+                        setCurrentAssContent(e.data.assContent || '');
                         setTimeout(() => {
                             worker.terminate();
                             resolve();
@@ -396,26 +398,32 @@ export const ShortsCreator: React.FC = () => {
 
             // Transcription if enabled
             if (clip.enableCaptions) {
-                const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
-                
-                // For transcription, we always use the web-optimized worker path
-                const float32Data = await decodeToMono(nativePath, 16000, clip.endTime - clip.startTime, clip.startTime);
-                const worker = new Worker(new URL('../utils/transcriber.ts', import.meta.url), { type: 'module' });
-                
-                subtitleFileContent = await new Promise<string>((resolve, reject) => {
-                    worker.onmessage = (e) => {
-                        if (e.data.status === 'ready') {
-                            worker.postMessage({ type: 'transcribe', audioData: float32Data });
-                        } else if (e.data.status === 'done') {
-                            worker.terminate();
-                            resolve(e.data.assContent);
-                        } else if (e.data.status === 'error') {
-                            worker.terminate();
-                            reject(new Error(e.data.error));
-                        }
-                    };
-                    worker.postMessage({ type: 'init' });
-                });
+                if (clip.assContent) {
+                    console.log('[Shorts-Export] Reusing existing transcription ASS content...');
+                    subtitleFileContent = clip.assContent;
+                } else {
+                    console.log('[Shorts-Export] Running new transcription...');
+                    const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
+                    
+                    // For transcription, we always use the web-optimized worker path
+                    const float32Data = await decodeToMono(nativePath, 16000, clip.endTime - startTime, startTime);
+                    const worker = new Worker(new URL('../utils/transcriber.ts', import.meta.url), { type: 'module' });
+                    
+                    subtitleFileContent = await new Promise<string>((resolve, reject) => {
+                        worker.onmessage = (e) => {
+                            if (e.data.status === 'ready') {
+                                worker.postMessage({ type: 'transcribe', audioData: float32Data });
+                            } else if (e.data.status === 'done') {
+                                worker.terminate();
+                                resolve(e.data.assContent);
+                            } else if (e.data.status === 'error') {
+                                worker.terminate();
+                                reject(new Error(e.data.error));
+                            }
+                        };
+                        worker.postMessage({ type: 'init' });
+                    });
+                }
 
                 if (isTauri && selectedPath && subtitleFileContent) {
                     subtitleFilePath = selectedPath + '.ass';
@@ -544,6 +552,8 @@ export const ShortsCreator: React.FC = () => {
             enableFaceTracker,
             enableCaptions,
             coordinates: enableFaceTracker ? coordinates : [],
+            captionChunks: enableCaptions ? captionChunks : [],
+            assContent: enableCaptions ? currentAssContent : '',
             thumbnail
         };
 
@@ -578,7 +588,9 @@ export const ShortsCreator: React.FC = () => {
         setStatus(clip.enableFaceTracker ? 'preview' : 'idle');
         setCaptionStatus(clip.enableCaptions ? 'done' : 'idle');
         setCoordinates(clip.coordinates || []);
-        if (videoRef.current) {
+        setCaptionChunks(clip.captionChunks || []);
+        setCurrentAssContent(clip.assContent || '');
+        if (videoRef.current && isFinite(clip.startTime)) {
             videoRef.current.currentTime = clip.startTime;
         }
     };
@@ -592,6 +604,7 @@ export const ShortsCreator: React.FC = () => {
         setStatus('idle');
         setCoordinates([]);
         setCaptionChunks([]);
+        setCurrentAssContent('');
         setCaptionStatus('idle');
     };
 
@@ -750,8 +763,11 @@ export const ShortsCreator: React.FC = () => {
                                                 value={startTime}
                                                 onChange={(e) => {
                                                     const val = parseFloat(e.target.value);
-                                                    setStartTime(val);
-                                                    if (videoRef.current) videoRef.current.currentTime = val;
+                                                    const safeVal = isNaN(val) ? 0 : val;
+                                                    setStartTime(safeVal);
+                                                    if (videoRef.current && isFinite(val)) {
+                                                        videoRef.current.currentTime = val;
+                                                    }
                                                 }}
                                                 className="bg-transparent border-none text-gray-900 focus:outline-none w-16 font-mono font-bold"
                                             />
@@ -768,7 +784,10 @@ export const ShortsCreator: React.FC = () => {
                                                 max={videoRef.current?.duration || 100}
                                                 step={0.1}
                                                 value={endTime}
-                                                onChange={(e) => setEndTime(parseFloat(e.target.value))}
+                                                onChange={(e) => {
+                                                    const val = parseFloat(e.target.value);
+                                                    setEndTime(isNaN(val) ? 0 : val);
+                                                }}
                                                 className="bg-transparent border-none text-gray-900 focus:outline-none w-16 font-mono font-bold"
                                             />
                                             <button onClick={() => { if (videoRef.current) setEndTime(videoRef.current.currentTime); }} className="p-1.5 hover:bg-gray-200 rounded-lg text-gray-400 hover:text-gray-900 transition-all">

@@ -110,7 +110,7 @@ export async function exportVideoWeb(
     // We use a more robust setup to ensure libass/fontconfig finds the font.
     // Primary and fallback font URLs for robustness
     const FONT_URLS = [
-        'https://unpkg.com/font-roboto@1.1.0/fonts/Roboto-Bold.ttf',
+        '/fonts/Roboto-Bold.ttf',
         'https://cdn.jsdelivr.net/gh/google/fonts@main/apache/roboto/static/Roboto-Bold.ttf',
         'https://raw.githubusercontent.com/google/fonts/main/apache/roboto/static/Roboto-Bold.ttf'
     ];

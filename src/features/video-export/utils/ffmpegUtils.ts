@@ -471,13 +471,16 @@ export const buildFFmpegCommand = (
 
         let vFilter = `setpts=PTS-STARTPTS,${cropFilter}`;
         if (currentShort.enableCaptions && subtitleFile) {
-            const safeSubtitlePath = subtitleFile.replace(/\\/g, '/').replace(/:/g, '\\\\:');
-            vFilter += `,subtitles='${safeSubtitlePath}':fontsdir='/fonts':force_style='Fontname=sans-serif'`;
+            // For both Web and Tauri, ensure path is properly escaped for FFmpeg filter syntax
+            const escapedPath = subtitleFile.replace(/\\/g, '/').replace(/:/g, '\\\\:');
+            // We use fontsdir for Tauri and force_style for generic mapping. 
+            // On web, fonts.conf should handle mapping sans-serif to Roboto.
+            vFilter += `,subtitles='${escapedPath}':fontsdir='/fonts':force_style='Fontname=sans-serif'`;
         }
 
-        // Rescale for performance on web
+        // Rescale for performance on web, ensuring even dimensions for libx264
         if (maxHeight) {
-            vFilter += `,scale=-2:'min(ih,${maxHeight})':flags=fast_bilinear`;
+            vFilter += `,scale=-2:'trunc(min(ih,${maxHeight})/2)*2':flags=fast_bilinear`;
         }
 
         filterComplex.push(`[0:v]${vFilter}${mappingVideo}`);

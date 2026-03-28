@@ -34,6 +34,8 @@ export interface ShortsClip {
     enableFaceTracker: boolean;
     enableCaptions: boolean;
     coordinates?: any[]; // Face tracking coordinates
+    captionChunks?: any[]; // Transcription results
+    assContent?: string; // Generated ASS subtitle content
     thumbnail?: string; // Base64 thumbnail for the gallery
 }
 
