@@ -111,8 +111,7 @@ export async function exportVideoWeb(
     // Primary and fallback font URLs for robustness
     const FONT_URLS = [
         '/fonts/Roboto-Bold.ttf',
-        'https://cdn.jsdelivr.net/gh/google/fonts@main/apache/roboto/static/Roboto-Bold.ttf',
-        'https://raw.githubusercontent.com/google/fonts/main/apache/roboto/static/Roboto-Bold.ttf'
+        'https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Bold.ttf'
     ];
     const FONT_NAME = 'Roboto-Bold.ttf';
     const FONT_FAMILY = 'Roboto Bold';
@@ -125,7 +124,27 @@ export async function exportVideoWeb(
                 console.log('[FFmpegWeb] Attempting to fetch font from:', url);
                 const fontRes = await fetch(url);
                 if (fontRes.ok) {
-                    fontData = new Uint8Array(await fontRes.arrayBuffer());
+                    const contentType = fontRes.headers.get('content-type') || '';
+                    if (contentType.includes('text/html')) {
+                        console.warn(`[FFmpegWeb] Fetch for ${url} returned HTML, skipping...`);
+                        continue;
+                    }
+
+                    const buffer = await fontRes.arrayBuffer();
+
+                    // Simple TTF magic number check (0x00010000 or 'OTTO' for OpenType)
+                    const view = new DataView(buffer);
+                    if (buffer.byteLength > 4) {
+                        const magic = view.getUint32(0, false);
+                        if (magic !== 0x00010000 && magic !== 0x4F54544F) {
+                            console.warn(`[FFmpegWeb] Fetch for ${url} did not return a valid TTF/OTF signature, skipping...`);
+                            continue;
+                        }
+                    } else {
+                        continue;
+                    }
+
+                    fontData = new Uint8Array(buffer);
                     console.log('[FFmpegWeb] Font fetched successfully from:', url);
                     break;
                 }
@@ -139,7 +158,7 @@ export async function exportVideoWeb(
         // Write font to root and standard font dirs.
         // We use new Uint8Array() to prevent DataCloneError (ArrayBuffer detachment during postMessage).
         console.log('[FFmpegWeb] Writing font file...');
-        await ffmpeg.writeFile(FONT_NAME, new Uint8Array(fontData));
+
         await ffmpeg.createDir('/fonts').catch(() => {});
         await ffmpeg.writeFile(`/fonts/${FONT_NAME}`, new Uint8Array(fontData));
         
@@ -150,7 +169,6 @@ export async function exportVideoWeb(
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
 <fontconfig>
   <dir>/fonts</dir>
-  <dir>/tmp</dir>
   <cachedir>/tmp/fontconfig</cachedir>
   <match target="pattern">
     <test qual="any" name="family"><string>sans-serif</string></test>
