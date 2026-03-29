@@ -171,7 +171,7 @@ const composeVideoFilter = (
 
     if (otherVideos.length === 0) {
         if (isDesktop) {
-            filterComplex.push(`[0:v]scale=-2:${baseRes}:flags=fast_bilinear[v_scaled_base]`);
+            filterComplex.push(`[0:v]scale=-2:${baseRes}:flags=lanczos[v_scaled_base]`);
             videoStreams.push('[v_scaled_base]');
         } else {
             videoStreams.push('0:v');
@@ -223,7 +223,7 @@ const composeVideoFilter = (
                 // To refer to the scaled size (before padding), we use (in_w - 2*padSize).
                 
                 const filter = [
-                    `scale=-2:${targetH}:flags=fast_bilinear`,
+                    `scale=-2:${targetH}:flags=lanczos`,
                     `pad=iw+${padSize * 2}:ih+${padSize * 2}:${padSize}:${padSize}:black`,
                     `crop=${outW}:${outH}:${padSize}+(in_w-${padSize * 2}-${outW})/2-(${transform.x}/100*(in_w-${padSize * 2})):${padSize}+(in_h-${padSize * 2}-${outH})/2-(${transform.y}/100*(in_h-${padSize * 2}))`
                 ].join(',');
@@ -231,7 +231,7 @@ const composeVideoFilter = (
                 filterComplex.push(`${syncedVideos[i]}${filter}[${scaleLabel}]`);
             } else {
                 // Scale mode (Letterbox): Fit within 1280x720 or 1920x1080 with black bars
-                filterComplex.push(`${syncedVideos[i]}scale=-2:${baseRes}:flags=fast_bilinear,pad=ih*16/9:ih:(ow-iw)/2:0[${scaleLabel}]`);
+                filterComplex.push(`${syncedVideos[i]}scale=-2:${baseRes}:flags=lanczos,pad=ih*16/9:ih:(ow-iw)/2:0[${scaleLabel}]`);
             }
             scaledVideos.push(`[${scaleLabel}]`);
         }
@@ -510,7 +510,7 @@ export const buildFFmpegCommand = (
 
         // Rescale for performance on web, ensuring even dimensions for libx264
         if (maxHeight) {
-            vFilter += `,scale=-2:'trunc(min(ih,${maxHeight})/2)*2':flags=fast_bilinear`;
+            vFilter += `,scale=-2:'trunc(min(ih,${maxHeight})/2)*2':flags=lanczos`;
         }
 
         filterComplex.push(`[0:v]${vFilter}${mappingVideo}`);
@@ -526,7 +526,7 @@ export const buildFFmpegCommand = (
         
         if (maxHeight) {
             const scaleLabel = '[v_capped]';
-            filterComplex.push(`${composedVideoStream}scale=-2:'min(ih,${maxHeight})':flags=fast_bilinear${scaleLabel}`);
+            filterComplex.push(`${composedVideoStream}scale=-2:'min(ih,${maxHeight})':flags=lanczos${scaleLabel}`);
             composedVideoStream = scaleLabel;
         }
 
