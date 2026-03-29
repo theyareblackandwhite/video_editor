@@ -24,6 +24,9 @@ export interface MediaFile {
     isMaster?: boolean;
     isMuted?: boolean;
     transform?: VideoTransform;
+    width?: number; // Intrinsic width for layout
+    height?: number; // Intrinsic height for layout
+    duration?: number; // Total duration in seconds
     error?: string; // Loading or restoration error message
 }
 

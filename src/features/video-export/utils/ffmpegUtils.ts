@@ -84,8 +84,7 @@ const detectFastExport = (
     masterVideo: MediaFile,
     otherVideos: MediaFile[],
     audioFiles: MediaFile[],
-    cuts: CutSegment[],
-    isDesktop: boolean
+    cuts: CutSegment[]
 ): { isMatch: boolean; reason?: string } => {
     const isSingleVideo = otherVideos.length === 0 && masterVideo.syncOffset === 0;
     const hasExternalAudio = config.includeAudio && audioFiles.length > 0;
@@ -162,6 +161,8 @@ const composeVideoFilter = (
 ): string[] => {
     const otherVideos = videoFiles.filter(v => v.id !== masterVideoId);
     const videoStreams: string[] = [];
+    // We use a standard layout canvas (1080p) to guarantee stable filters during hstack/crop.
+    const baseRes = 1080;
 
     if (otherVideos.length === 0) {
         if (isDesktop) {
@@ -172,14 +173,6 @@ const composeVideoFilter = (
         }
     } else {
         // For layouts (hstack/crop), videos MUST have identical height.
-        // We use the master video's intrinsic resolution, or fallback to 1080p if not known.
-        const masterVideo = videoFiles.find(v => v.id === masterVideoId);
-        // We can get the exact pixel resolution via `width` and `height` on MediaFile if available in standard use cases
-        // Since we didn't have height property reliably guaranteed on MediaFile in all contexts,
-        // we fallback to 1080. But it preserves quality well enough for multiple streams.
-        // Let's use 1080 as the standard layout canvas to guarantee a stable hstack without crashing.
-        const baseRes = 1080;
-
         const syncedVideos: string[] = ['[0:v]'];
         otherVideos.forEach((v, i) => {
             const inputIdx = i + 1;
@@ -457,7 +450,7 @@ export const buildFFmpegCommand = (
     const isDesktop = !isWeb;
 
     // 2. Fast Export Detection
-    if (!currentShort && detectFastExport(config, masterVideo, otherVideos, audioFiles, cuts, isDesktop).isMatch && (!shortsConfig || !shortsConfig.isActive)) {
+    if (!currentShort && detectFastExport(config, masterVideo, otherVideos, audioFiles, cuts).isMatch && (!shortsConfig || !shortsConfig.isActive)) {
         args.push('-c:v', 'copy');
         if (!config.includeAudio) args.push('-an');
         else args.push('-c:a', 'copy');
