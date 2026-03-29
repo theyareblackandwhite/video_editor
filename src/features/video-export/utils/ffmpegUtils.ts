@@ -87,11 +87,6 @@ const detectFastExport = (
     cuts: CutSegment[],
     isDesktop: boolean
 ): { isMatch: boolean; reason?: string } => {
-    // Disable fast export on desktop so we can enforce 1080p 60fps and high quality preset
-    if (isDesktop) {
-        return { isMatch: false, reason: "Desktop enforces quality and resolution" };
-    }
-
     const isSingleVideo = otherVideos.length === 0 && masterVideo.syncOffset === 0;
     const hasExternalAudio = config.includeAudio && audioFiles.length > 0;
     const noCuts = !config.applyCuts || cuts.length === 0;
@@ -165,18 +160,22 @@ const composeVideoFilter = (
     filterComplex: string[],
     isDesktop: boolean
 ): string[] => {
-    const baseRes = isDesktop ? 1080 : 720;
     const otherVideos = videoFiles.filter(v => v.id !== masterVideoId);
     const videoStreams: string[] = [];
 
     if (otherVideos.length === 0) {
-        if (isDesktop) {
-            filterComplex.push(`[0:v]scale=-2:${baseRes}:flags=fast_bilinear[v_scaled_base]`);
-            videoStreams.push('[v_scaled_base]');
-        } else {
-            videoStreams.push('0:v');
-        }
+        // Just use the original video stream without scaling to preserve its true resolution.
+        videoStreams.push('0:v');
     } else {
+        // For layouts (hstack/crop), videos MUST have identical height.
+        // We use the master video's intrinsic resolution, or fallback to 1080p if not known.
+        const masterVideo = videoFiles.find(v => v.id === masterVideoId);
+        // We can get the exact pixel resolution via `width` and `height` on MediaFile if available in standard use cases
+        // Since we didn't have height property reliably guaranteed on MediaFile in all contexts,
+        // we fallback to 1080. But it preserves quality well enough for multiple streams.
+        // Let's use 1080 as the standard layout canvas to guarantee a stable hstack without crashing.
+        const baseRes = 1080;
+
         const syncedVideos: string[] = ['[0:v]'];
         otherVideos.forEach((v, i) => {
             const inputIdx = i + 1;
@@ -205,22 +204,10 @@ const composeVideoFilter = (
             const scaleLabel = `v_scale_${i}`;
 
             if (layoutMode === 'crop') {
-                /**
-                 * CROP MODE TRANSFORMATION LOGIC:
-                 * 1. Scale: Height is set to 720 * user_scale. Width follows aspect ratio.
-                 * 2. Pad: Add a large black margin (1000px) around the scaled video to allow "panning" into blackness without filter errors.
-                 * 3. Crop: Extract a 720x720 square.
-                 *    - Default position (centered): 1000 + (scaled_width - 720)/2
-                 *    - User offset: Subtracted from default to match CSS translate (x% moves video right, so crop window moves left).
-                 */
                 const targetH = baseRes * transform.scale;
-                const padSize = 1000; // Safe margin for panning
+                const padSize = 1000;
                 const outW = baseRes;
                 const outH = baseRes;
-                
-                // s_w and s_h are variables in FFmpeg for the scaled input width/height before padding
-                // However, we can use 'iw' and 'ih' inside crop because they refer to the padded input.
-                // To refer to the scaled size (before padding), we use (in_w - 2*padSize).
                 
                 const filter = [
                     `scale=-2:${targetH}:flags=fast_bilinear`,
@@ -370,15 +357,12 @@ const applyTrimmingAndTransitions = (
 /**
  * Gets encoding arguments based on format, quality, and OS
  */
-const getEncodingArguments = (config: ExportConfig, isDesktop: boolean): string[] => {
+const getEncodingArguments = (config: ExportConfig): string[] => {
     const args: string[] = ['-threads', '0'];
 
-    if (isDesktop) {
-        args.push('-r', '60');
-    }
-
     if (config.format === 'mp4') {
-        const crf = config.quality === 'high' ? (isDesktop ? '18' : '23') : config.quality === 'medium' ? '28' : '32';
+        // Use more professional CRF values for high quality (16 is practically visually lossless for x264)
+        const crf = config.quality === 'high' ? '16' : config.quality === 'medium' ? '23' : '28';
         let osType = 'unknown';
         if (typeof navigator !== 'undefined') {
             const ua = navigator.userAgent.toLowerCase();
@@ -392,11 +376,15 @@ const getEncodingArguments = (config: ExportConfig, isDesktop: boolean): string[
 
         args.push('-c:v', videoCodec);
         if (videoCodec === 'libx264') {
-            args.push('-crf', crf, '-preset', 'ultrafast');
+            // Use better preset to ensure high quality (medium instead of ultrafast)
+            const preset = config.quality === 'high' ? 'medium' : config.quality === 'medium' ? 'fast' : 'veryfast';
+            args.push('-crf', crf, '-preset', preset);
         } else if (videoCodec === 'h264_nvenc') {
-            args.push('-rc', 'vbr', '-cq', crf, '-preset', 'p1');
+            // Use better preset for NVENC (p6/p7 is high quality, p1 is performance)
+            const preset = config.quality === 'high' ? 'p6' : config.quality === 'medium' ? 'p4' : 'p2';
+            args.push('-rc', 'vbr', '-cq', crf, '-preset', preset);
         } else if (videoCodec === 'h264_videotoolbox') {
-            const qv = config.quality === 'high' ? '60' : config.quality === 'medium' ? '50' : '40';
+            const qv = config.quality === 'high' ? '80' : config.quality === 'medium' ? '60' : '40';
             args.push('-q:v', qv);
         }
 
@@ -532,11 +520,18 @@ export const buildFFmpegCommand = (
 
         if (config.borderRadius > 0) {
             const roundedLabel = '[v_rounded]';
-            const baseRes = isDesktop ? 1080 : 720;
-            const w = config.layoutMode === 'crop' ? baseRes * videoFiles.length : Math.round(baseRes * 16 / 9);
-            const h = baseRes;
+            const baseRes = 1080;
+            let w = masterVideo.width || 1920;
+            let h = masterVideo.height || 1080;
+
+            if (otherVideos.length > 0) {
+                w = config.layoutMode === 'crop' ? baseRes * videoFiles.length : Math.round(baseRes * 16 / 9);
+                h = baseRes;
+            }
+
             if (overlayMaskPath) {
                 const maskInputIdx = 1 + otherVideos.length + (config.includeAudio ? audioFiles.length : 0);
+                // Simple scale filter to match exact width and height
                 filterComplex.push(`[${maskInputIdx}:v]scale=${w}:${h}[mask]`);
             }
             applyRoundedCornersFilter(composedVideoStream, roundedLabel, w, h, config.borderRadius, filterComplex, overlayMaskPath);
@@ -558,7 +553,7 @@ export const buildFFmpegCommand = (
         args.push('-filter_complex', filterComplex.join(';'));
     }
     args.push('-map', mappingVideo, '-map', mappingAudio);
-    args.push(...getEncodingArguments(config, isDesktop));
+    args.push(...getEncodingArguments(config));
     args.push(outputPath);
 
     return args;

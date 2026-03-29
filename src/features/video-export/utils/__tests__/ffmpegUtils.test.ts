@@ -113,18 +113,18 @@ describe('buildFFmpegCommand', () => {
         expect(args).toContain('-c:v');
         expect(args).toContain('libx264');
         expect(args).toContain('-crf');
-        expect(args[args.indexOf('-crf') + 1]).toBe('23');
+        expect(args[args.indexOf('-crf') + 1]).toBe('16');
         expect(args).toContain('-movflags');
     });
 
     it('generates mp4 with medium CRF when normalizeAudio is true (no passthrough)', () => {
         const args = buildFFmpegCommand({ ...baseConfig, quality: 'medium', normalizeAudio: true }, [], 60, [mockMasterVideo], [], 'm1', '/output.mp4');
-        expect(args[args.indexOf('-crf') + 1]).toBe('28');
+        expect(args[args.indexOf('-crf') + 1]).toBe('23');
     });
 
     it('generates mp4 with low CRF when normalizeAudio is true (no passthrough)', () => {
         const args = buildFFmpegCommand({ ...baseConfig, quality: 'low', normalizeAudio: true }, [], 60, [mockMasterVideo], [], 'm1', '/output.mp4');
-        expect(args[args.indexOf('-crf') + 1]).toBe('32');
+        expect(args[args.indexOf('-crf') + 1]).toBe('28');
     });
 
     it('generates webm with VP9 + Opus codecs when normalizeAudio is true (no passthrough)', () => {
