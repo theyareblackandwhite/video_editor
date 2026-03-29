@@ -38,6 +38,14 @@ export function useExportProcess({
     const lastErrorMessageRef = useRef<string>('');
 
     useEffect(() => {
+        const { setIsExporting } = useAppStore.getState();
+        setIsExporting(phase === 'processing');
+        
+        // Ensure it's reset on unmount
+        return () => setIsExporting(false);
+    }, [phase]);
+
+    useEffect(() => {
         if (phase === 'processing') {
             timerRef.current = setInterval(() => setElapsedTime(t => t + 1), 1000);
         } else {

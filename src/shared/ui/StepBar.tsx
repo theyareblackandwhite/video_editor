@@ -16,7 +16,7 @@ interface StepBarProps {
 }
 
 export const StepBar: React.FC<StepBarProps> = ({ hideLogo }) => {
-    const { currentStep, setStep } = useAppStore();
+    const { currentStep, setStep, isExporting } = useAppStore();
 
     // Progress percentage based on completed steps
     const progressPercent = ((currentStep - 1) / (STEPS.length - 1)) * 100;
@@ -54,9 +54,11 @@ export const StepBar: React.FC<StepBarProps> = ({ hideLogo }) => {
                                 return (
                                     <button
                                         key={num}
-                                        onClick={() => setStep(num)}
-                                        className={`group flex flex-col items-center gap-1.5 cursor-pointer transition-transform duration-300
-                                            ${isActive ? 'scale-110' : 'hover:scale-105'}`}
+                                        onClick={() => !isExporting && setStep(num)}
+                                        disabled={isExporting}
+                                        className={`group flex flex-col items-center gap-1.5 transition-transform duration-300
+                                            ${isExporting ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:scale-105'}
+                                            ${isActive ? 'scale-110' : ''}`}
                                         style={{ outline: 'none' }}
                                     >
                                         {/* Circle — w-8 h-8 = 32px, so center is at 16px = top-4/left-4 */}

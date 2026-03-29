@@ -22,7 +22,7 @@ const StepComponents: Record<number, React.FC<any>> = {
 };
 
 function App() {
-  const { currentStep, videoFiles, audioFiles, hydrateSession } = useAppStore();
+  const { currentStep, videoFiles, audioFiles, hydrateSession, isExporting } = useAppStore();
 
   const [displayedStep, setDisplayedStep] = useState(currentStep);
   const [direction, setDirection] = useState<'left' | 'right'>('right');
@@ -165,11 +165,15 @@ function App() {
             {/* Standardized Back Button (Steps 2-6) */}
             {currentStep > 1 && (
               <button
+                disabled={isExporting}
                 onClick={() => {
                   const targetStep = currentStep === 3 && videoFiles.length <= 1 && audioFiles.length === 0 ? 1 : currentStep - 1;
                   useAppStore.getState().setStep(targetStep);
                 }}
-                className="px-4 py-2 bg-white text-gray-600 text-sm rounded-xl hover:bg-gray-50 transition-all font-semibold border border-gray-200 shadow-sm active:scale-95"
+                className={`px-4 py-2 text-sm rounded-xl transition-all font-semibold border shadow-sm active:scale-95
+                  ${isExporting 
+                    ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-60' 
+                    : 'bg-white text-gray-600 hover:bg-gray-50 border-gray-200'}`}
               >
                 ← Geri
               </button>
@@ -178,6 +182,7 @@ function App() {
             {/* Step-specific Next Buttons */}
             {currentStep === 3 && (
               <button
+                disabled={isExporting}
                 onClick={() => {
                   const previewEl = document.getElementById('video-preview-container');
                   if (previewEl) {
@@ -211,26 +216,34 @@ function App() {
                   }
                   useAppStore.getState().setStep(4);
                 }}
-                className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-xl
-                  hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
+                className={`px-6 py-2 text-sm font-bold rounded-xl shadow-lg active:scale-[0.98] transition-all
+                  ${isExporting 
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none' 
+                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-blue-600/20'}`}
               >
                 Kapak Tasarla →
               </button>
             )}
             {currentStep === 4 && (
               <button
+                disabled={isExporting}
                 onClick={() => useAppStore.getState().setStep(5)}
-                className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-xl
-                  hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
+                className={`px-6 py-2 text-sm font-bold rounded-xl shadow-lg active:scale-[0.98] transition-all
+                  ${isExporting 
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none' 
+                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-blue-600/20'}`}
               >
                 Dışa Aktar →
               </button>
             )}
             {currentStep === 5 && (
               <button
+                disabled={isExporting}
                 onClick={() => useAppStore.getState().setStep(6)}
-                className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-bold rounded-xl
-                  hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all"
+                className={`px-6 py-2 text-sm font-bold rounded-xl shadow-lg active:scale-[0.98] transition-all
+                  ${isExporting 
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none' 
+                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-blue-600/20'}`}
               >
                 Shorts Oluştur →
               </button>

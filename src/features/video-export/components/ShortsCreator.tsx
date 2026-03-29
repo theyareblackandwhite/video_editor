@@ -63,6 +63,13 @@ export const ShortsCreator: React.FC = () => {
         };
     }, []);
 
+    // Sync global isExporting state
+    useEffect(() => {
+        const { setIsExporting } = useAppStore.getState();
+        setIsExporting(exportingClipId !== null);
+        return () => setIsExporting(false);
+    }, [exportingClipId]);
+
     const loadVideoFile = useCallback((file: File) => {
         if (!file.type.startsWith('video/')) return;
         if (shortsVideoUrl) URL.revokeObjectURL(shortsVideoUrl);

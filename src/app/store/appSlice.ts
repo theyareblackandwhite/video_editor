@@ -8,6 +8,8 @@ import { isTauri } from '../../shared/utils/tauri';
 export interface AppSlice {
     currentStep: number;
     setStep: (step: number) => void;
+    isExporting: boolean;
+    setIsExporting: (isExporting: boolean) => void;
 
     resetSession: () => void;
     updateVideoTransform: (id: string, transform: Partial<VideoTransform>) => void;
@@ -21,6 +23,10 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set, ge
     currentStep: 1,
     setStep: (step) => {
         set({ currentStep: step });
+    },
+    isExporting: false,
+    setIsExporting: (isExporting) => {
+        set({ isExporting });
     },
 
     shortsConfig: undefined,
