@@ -11,9 +11,23 @@ export async function getFFmpeg() {
 
     const ffmpeg = new FFmpeg();
     
-    // In production/PWA, we might want to host these yourself. 
-    // For now, using standard cloudflare/unpkg CDNs.
-    const baseURL = 'https://unpkg.com/@ffmpeg/core-mt@0.12.6/dist/esm';
+    const version = '0.12.10';
+    const localBaseURL = `${window.location.origin}/ffmpeg-mt`;
+    const cdnBaseURL = `https://unpkg.com/@ffmpeg/core-mt@${version}/dist/esm`;
+    
+    let baseURL = localBaseURL;
+    
+    // Check if local WASM is available
+    // It will be missing on Cloudflare production builds due to the 25MB limit filter in vite.config.ts
+    try {
+        const testRes = await fetch(`${localBaseURL}/ffmpeg-core.wasm`, { method: 'HEAD' });
+        if (!testRes.ok) {
+            console.log('[FFmpegWeb] Local WASM not found (expected on web production). Using CDN fallback.');
+            baseURL = cdnBaseURL;
+        }
+    } catch (e) {
+        baseURL = cdnBaseURL;
+    }
     
     await ffmpeg.load({
         coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),

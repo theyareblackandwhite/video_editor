@@ -5,61 +5,60 @@ import { VitePWA } from 'vite-plugin-pwa'
 import fs from 'fs';
 import path from 'path';
 
-// Automatically sync AI models to public/models for offline Tauri
-const syncModels = () => {
-  const modelsDir = path.resolve(__dirname, 'public', 'models');
-  if (!fs.existsSync(modelsDir)) {
-    fs.mkdirSync(modelsDir, { recursive: true });
+// Helper to synchronize folders and skip large files for web production
+const syncDir = (srcDir: string, destDir: string, skipLarge: boolean = true) => {
+  if (!fs.existsSync(srcDir)) return;
+  if (!fs.existsSync(destDir)) {
+    fs.mkdirSync(destDir, { recursive: true });
   }
 
-  const wasmDist = path.resolve(__dirname, 'node_modules', 'onnxruntime-web', 'dist');
-  if (fs.existsSync(wasmDist)) {
-    fs.readdirSync(wasmDist).forEach(file => {
-      const src = path.join(wasmDist, file);
-      const dest = path.join(modelsDir, file);
-      if (fs.statSync(src).isFile()) {
-        // Skip files > 25MB for production web builds to avoid Cloudflare limits.
-        // Tauri builds should still include them for offline support.
-        const isProduction = process.env.NODE_ENV === 'production';
-        const isTauriBuild = !!(process.env.TAURI_ENV || process.env.TAURI_PLATFORM || process.env.TAURI_ARCH);
-        
-        if (isProduction && !isTauriBuild && fs.statSync(src).size > 24 * 1024 * 1024) {
-          console.warn(`[Build] Skipping large asset ${file} for web production (CDN fallback will be used).`);
-          // Ensure file is deleted from public/models so it's not copied to dist
-          if (fs.existsSync(dest)) {
-            fs.unlinkSync(dest);
-          }
-          return;
-        }
+  fs.readdirSync(srcDir).forEach(file => {
+    const src = path.join(srcDir, file);
+    const dest = path.join(destDir, file);
+    if (!fs.statSync(src).isFile()) return;
 
-        if (!fs.existsSync(dest) || fs.statSync(src).mtimeMs > fs.statSync(dest).mtimeMs) {
-          fs.copyFileSync(src, dest);
-        }
-      }
-    });
-  }
+    const isProduction = process.env.NODE_ENV === 'production';
+    const isTauriBuild = !!(process.env.TAURI_ENV || process.env.TAURI_PLATFORM || process.env.TAURI_ARCH);
+    
+    // Skip files > 24MB for production web builds (Cloudflare limit)
+    // Tori builds still include them for offline support.
+    if (skipLarge && isProduction && !isTauriBuild && fs.statSync(src).size > 24 * 1024 * 1024) {
+      console.warn(`[Build] Skipping large asset ${file} for web production (CDN fallback will be used).`);
+      if (fs.existsSync(dest)) fs.unlinkSync(dest);
+      return;
+    }
 
-  const vadDist = path.resolve(__dirname, 'node_modules', '@ricky0123', 'vad-web', 'dist');
-  if (fs.existsSync(vadDist)) {
-    ['silero_vad_legacy.onnx'].forEach(file => {
-      const src = path.join(vadDist, file);
-      const dest = path.join(modelsDir, file);
-      if (fs.existsSync(src)) {
-        if (!fs.existsSync(dest) || fs.statSync(src).mtimeMs > fs.statSync(dest).mtimeMs) {
-          fs.copyFileSync(src, dest);
-        }
-      }
-    });
-  }
+    if (!fs.existsSync(dest) || fs.statSync(src).mtimeMs > fs.statSync(dest).mtimeMs) {
+      fs.copyFileSync(src, dest);
+    }
+  });
 };
 
-// Only run initial sync once per process if possible, or just optimize it
-if (process.env.NODE_ENV !== 'production' && !process.env.VITE_MODELS_SYNCED) {
-  syncModels();
-  process.env.VITE_MODELS_SYNCED = 'true';
-} else if (process.env.NODE_ENV === 'production') {
-  syncModels();
-}
+const syncModels = () => {
+  // 1. ONNX Runtime WASM (SIMD/Threaded)
+  syncDir(
+    path.resolve(__dirname, 'node_modules', 'onnxruntime-web', 'dist'),
+    path.resolve(__dirname, 'public', 'models')
+  );
+
+  // 2. Silero VAD (only specific file)
+  const vadSrc = path.resolve(__dirname, 'node_modules', '@ricky0123', 'vad-web', 'dist', 'silero_vad_legacy.onnx');
+  if (fs.existsSync(vadSrc)) {
+    const dest = path.resolve(__dirname, 'public', 'models', 'silero_vad_legacy.onnx');
+    if (!fs.existsSync(dest) || fs.statSync(vadSrc).mtimeMs > fs.statSync(dest).mtimeMs) {
+      fs.copyFileSync(vadSrc, dest);
+    }
+  }
+
+  // 3. FFmpeg Core MT (Multi-threaded)
+  syncDir(
+    path.resolve(__dirname, 'node_modules', '@ffmpeg/core-mt', 'dist', 'esm'),
+    path.resolve(__dirname, 'public', 'ffmpeg-mt')
+  );
+};
+
+// Initial sync
+syncModels();
 
 // https://vitejs.dev/config/
 export default defineConfig({
