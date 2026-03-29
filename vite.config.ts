@@ -5,6 +5,8 @@ import { VitePWA } from 'vite-plugin-pwa'
 import fs from 'fs';
 import path from 'path';
 
+import { cloudflare } from "@cloudflare/vite-plugin";
+
 // Helper to synchronize folders and skip large files for web production
 const syncDir = (srcDir: string, destDir: string, skipLarge: boolean = true) => {
   if (!fs.existsSync(srcDir)) return;
@@ -67,34 +69,31 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
   },
-  plugins: [
-    react(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
-      workbox: {
-        maximumFileSizeToCacheInBytes: 50 * 1024 * 1024,
-      },
-      manifest: {
-        name: 'PodCut PWA',
-        short_name: 'PodCut',
-        description: 'Client-side podcast video editor',
-        theme_color: '#ffffff',
-        icons: [
-          {
-            src: 'pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
-          }
-        ]
-      }
-    })
-  ],
+  plugins: [react(), VitePWA({
+    registerType: 'autoUpdate',
+    includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+    workbox: {
+      maximumFileSizeToCacheInBytes: 50 * 1024 * 1024,
+    },
+    manifest: {
+      name: 'PodCut PWA',
+      short_name: 'PodCut',
+      description: 'Client-side podcast video editor',
+      theme_color: '#ffffff',
+      icons: [
+        {
+          src: 'pwa-192x192.png',
+          sizes: '192x192',
+          type: 'image/png'
+        },
+        {
+          src: 'pwa-512x512.png',
+          sizes: '512x512',
+          type: 'image/png'
+        }
+      ]
+    }
+  }), cloudflare()],
   optimizeDeps: {
     exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
   },
