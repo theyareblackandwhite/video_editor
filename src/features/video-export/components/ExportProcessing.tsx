@@ -7,9 +7,10 @@ interface Props {
     progress: number;
     progressLabel: string;
     elapsedTime: number;
+    onCancel: () => void;
 }
 
-export const ExportProcessing: React.FC<Props> = ({ progress, progressLabel, elapsedTime }) => {
+export const ExportProcessing: React.FC<Props> = ({ progress, progressLabel, elapsedTime, onCancel }) => {
     return (
         <div className="flex flex-col items-center justify-center min-h-[60vh]">
             <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-10 w-full max-w-lg text-center">
@@ -35,11 +36,20 @@ export const ExportProcessing: React.FC<Props> = ({ progress, progressLabel, ela
                         <div className="absolute inset-0 bg-white/20 animate-pulse rounded-full" />
                     </div>
                 </div>
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between text-xs text-gray-400 mb-8">
                     <span>%{Math.round(progress * 100)}</span>
                     <span className="flex items-center gap-1">
                         <Clock size={12} /> {formatTime(elapsedTime)}
                     </span>
+                </div>
+
+                <div className="pt-4 border-t border-gray-50">
+                    <button
+                        onClick={onCancel}
+                        className="px-8 py-2.5 text-sm font-bold text-red-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all active:scale-95"
+                    >
+                        İptal Et
+                    </button>
                 </div>
             </div>
         </div>

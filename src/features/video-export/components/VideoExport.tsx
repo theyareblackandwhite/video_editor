@@ -39,7 +39,7 @@ export const VideoExport: React.FC = () => {
 
     const {
         phase, progress, progressLabel, outputPath, elapsedTime,
-        handleExport, handleReset
+        handleExport, handleReset, handleCancel
     } = useExportProcess({
         config, masterVideo, videoFiles, audioFiles, cuts
     });
@@ -74,6 +74,7 @@ export const VideoExport: React.FC = () => {
                     progress={progress} 
                     progressLabel={progressLabel} 
                     elapsedTime={elapsedTime} 
+                    onCancel={handleCancel}
                 />
             )}
 

@@ -308,6 +308,13 @@ export function useExportProcess({
         lastErrorMessageRef.current = '';
     }, []);
 
+    const handleCancel = useCallback(() => {
+        if (childProcessRef.current) {
+            childProcessRef.current.kill().catch(err => console.error('Failed to kill process on cancel:', err));
+        }
+        handleReset();
+    }, [handleReset]);
+
     return {
         phase,
         progress,
@@ -315,6 +322,7 @@ export function useExportProcess({
         outputPath,
         elapsedTime,
         handleExport,
-        handleReset
+        handleReset,
+        handleCancel
     };
 }

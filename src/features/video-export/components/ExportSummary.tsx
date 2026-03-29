@@ -3,7 +3,6 @@ import { HardDrive, Download } from 'lucide-react';
 import type { ExportConfig } from '../utils/ffmpegUtils';
 import type { MediaFile } from '../../../app/store/types';
 import { formatFileSize } from '../../../shared/utils';
-import { useAppStore } from '../../../app/store';
 
 const QUALITY_LABELS: Record<ExportConfig['quality'], { label: string }> = {
     high: { label: 'Yüksek Kalite' },
@@ -36,8 +35,6 @@ export const ExportSummary: React.FC<Props> = ({
     estimatedSize,
     onExport
 }) => {
-    const { shortsConfig } = useAppStore();
-
     return (
         <div className="lg:col-span-1">
             <div className="bg-white rounded-2xl shadow-md border border-gray-100 p-6 sticky top-6">
@@ -73,18 +70,6 @@ export const ExportSummary: React.FC<Props> = ({
                                 {config.applyCuts ? `${cutsCount} bölüm` : 'Uygulanmayacak'}
                             </span>
                         </div>
-                    )}
-                    <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Shorts / Reels</span>
-                        <span className={`font-medium ${shortsConfig?.isActive ? 'text-indigo-600' : 'text-gray-400'}`}>
-                            {shortsConfig?.isActive ? 'Aktif (9:16)' : 'Kapalı'}
-                        </span>
-                    </div>
-                    {shortsConfig?.isActive && shortsConfig.clips && (
-                         <div className="flex justify-between text-[10px] text-gray-400 -mt-2">
-                            <span>AI Klipler</span>
-                            <span>{shortsConfig.clips.length} hazır kesit</span>
-                         </div>
                     )}
                     <div className="flex justify-between text-sm">
                         <span className="text-gray-500">Ses dengeleme</span>
