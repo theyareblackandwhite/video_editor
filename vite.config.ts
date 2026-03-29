@@ -18,6 +18,20 @@ const syncModels = () => {
       const src = path.join(wasmDist, file);
       const dest = path.join(modelsDir, file);
       if (fs.statSync(src).isFile()) {
+        // Skip files > 25MB for production web builds to avoid Cloudflare limits.
+        // Tauri builds should still include them for offline support.
+        const isProduction = process.env.NODE_ENV === 'production';
+        const isTauriBuild = !!(process.env.TAURI_ENV || process.env.TAURI_PLATFORM || process.env.TAURI_ARCH);
+        
+        if (isProduction && !isTauriBuild && fs.statSync(src).size > 24 * 1024 * 1024) {
+          console.warn(`[Build] Skipping large asset ${file} for web production (CDN fallback will be used).`);
+          // Ensure file is deleted from public/models so it's not copied to dist
+          if (fs.existsSync(dest)) {
+            fs.unlinkSync(dest);
+          }
+          return;
+        }
+
         if (!fs.existsSync(dest) || fs.statSync(src).mtimeMs > fs.statSync(dest).mtimeMs) {
           fs.copyFileSync(src, dest);
         }
