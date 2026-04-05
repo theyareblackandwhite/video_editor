@@ -181,10 +181,9 @@ export async function detectSilences(
     const vad = await NonRealTimeVAD.new({
         modelURL: window.location.origin + "/models/silero_vad_legacy.onnx",
         ortConfig(ort: any) {
-            const wasmPath = isTauri()
-                ? window.location.origin + "/models/"
-                : "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/";
+            const wasmPath = window.location.origin + "/models/";
             ort.env.wasm.wasmPaths = wasmPath;
+            ort.env.wasm.numThreads = 1;
         },
         positiveSpeechThreshold: options.speechProbThreshold,
         negativeSpeechThreshold: 0.35,

@@ -218,7 +218,7 @@ export const ShortsCreator: React.FC = () => {
         setStatus('analyzing');
         setProgress(0);
         try {
-            const coords = await analyzeVideoForShorts(shortsVideoUrl, startTime, endTime, (p) => setProgress(p), abortControllerRef.current.signal);
+            const coords = await analyzeVideoForShorts(shortsVideoUrl, startTime, endTime, (p) => setProgress((prev) => Math.max(prev, p)), abortControllerRef.current.signal);
             setCoordinates(coords);
             setEnableFaceTracker(true);
             setStatus('preview');
@@ -266,7 +266,7 @@ export const ShortsCreator: React.FC = () => {
                     if (e.data.status === 'loading_model') {
                         // Keep loading within 0-40% range
                         const loadProgress = (e.data.progress || 0) * 0.4;
-                        setCaptionProgress(loadProgress);
+                        setCaptionProgress(prev => Math.max(prev, loadProgress));
                         setCaptionFileName(`Yapay Zeka Hazırlanıyor: ${e.data.file || 'Model'}`);
                     } else if (e.data.status === 'ready') {
                         // Jump to 45% when ready
@@ -386,7 +386,7 @@ export const ShortsCreator: React.FC = () => {
                 // Only run analysis if we don't have coordinates already
                 if (!coords || coords.length === 0) {
                     console.log('[Shorts-Export] Running new face analysis...');
-                    coords = await analyzeVideoForShorts(shortsVideoUrl, clip.startTime, clip.endTime, (p) => setExportProgress(p * 0.3));
+                    coords = await analyzeVideoForShorts(shortsVideoUrl, clip.startTime, clip.endTime, (p) => setExportProgress(prev => Math.max(prev, p * 0.3)));
                 } else {
                     console.log('[Shorts-Export] Reusing existing face coordinates (count:', coords.length, ')');
                     setExportProgress(0.3); // Instantly skip analysis part of progress
