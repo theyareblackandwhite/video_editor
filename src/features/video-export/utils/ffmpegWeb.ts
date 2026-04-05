@@ -194,7 +194,7 @@ export async function exportVideoWeb(
         console.log('[FFmpegWeb] Creating font config dirs...');
         await ffmpeg.createDir('/etc').catch(() => {});
         await ffmpeg.createDir('/etc/fonts').catch(() => {});
-        await ffmpeg.writeFile('/etc/fonts/fonts.conf', fontsConf);
+        await ffmpeg.writeFile('/etc/fonts/fonts.conf', new TextEncoder().encode(fontsConf));
         console.log('[FFmpegWeb] Font and fonts.conf written successfully');
     } catch (fontErr) {
         console.warn('[FFmpegWeb] Font setup warning:', fontErr);
@@ -247,13 +247,15 @@ export async function exportVideoWeb(
         let virtualCropPath: string | undefined;
         if (cropFileContent) {
             virtualCropPath = 'crop.txt';
-            await ffmpeg.writeFile(virtualCropPath, cropFileContent);
+            await ffmpeg.deleteFile(virtualCropPath).catch(() => {});
+            await ffmpeg.writeFile(virtualCropPath, new TextEncoder().encode(cropFileContent));
         }
 
         let virtualSubtitlePath: string | undefined;
         if (subtitleFileContent) {
             virtualSubtitlePath = 'subtitles.ass';
-            await ffmpeg.writeFile(virtualSubtitlePath, subtitleFileContent);
+            await ffmpeg.deleteFile(virtualSubtitlePath).catch(() => {});
+            await ffmpeg.writeFile(virtualSubtitlePath, new TextEncoder().encode(subtitleFileContent));
         }
 
         let virtualMaskPath: string | undefined;

@@ -1,6 +1,8 @@
 // @ts-ignore
 import { FaceDetector, FilesetResolver } from '@mediapipe/tasks-vision';
 
+import type { FrameFaces, DirectorKeyframe } from '../../../app/store/types';
+
 export interface CropCoordinate {
     time: number;
     x: number;
@@ -45,7 +47,7 @@ export async function analyzeVideoForShorts(
     endTime: number,
     onProgress: (p: number) => void,
     signal?: AbortSignal
-): Promise<CropCoordinate[]> {
+): Promise<FrameFaces[]> {
     try {
         console.log("[FaceTracker] Starting analysis. Source:", videoUrl.substring(0, 50) + "...");
         // Add a slight fake progress update so the UI knows we are loading models
@@ -64,17 +66,9 @@ export async function analyzeVideoForShorts(
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-            const coordinates: CropCoordinate[] = [];
+            const frameFacesCache: FrameFaces[] = [];
             const fps = 5; // Analyze at 5 fps
             const stepTime = 1 / fps;
-
-            let targetW = 0;
-            let targetH = 0;
-            let smoothedCenterX = -1;
-            let smoothedCenterY = -1;
-            let lastFaceCenterX = -1;
-            let lastFaceCenterY = -1;
-            const alpha = 0.2; // Smoothing factor
 
             const processFrame = async () => {
                 if (signal?.aborted) {
@@ -103,44 +97,23 @@ export async function analyzeVideoForShorts(
                     return reject(err);
                 }
                 
-                let currentFaceX = lastFaceCenterX !== -1 ? lastFaceCenterX : canvas.width / 2;
-                let currentFaceY = lastFaceCenterY !== -1 ? lastFaceCenterY : canvas.height / 2;
-
-                if (detections && detections.detections && detections.detections.length > 0) {
-                    const face = detections.detections[0].boundingBox;
-                    if (face) {
-                        currentFaceX = face.originX + (face.width / 2);
-                        currentFaceY = face.originY + (face.height / 2);
-                        lastFaceCenterX = currentFaceX;
-                        lastFaceCenterY = currentFaceY;
+                const faces = [];
+                if (detections && detections.detections) {
+                    for (const d of detections.detections) {
+                        if (d.boundingBox) {
+                            faces.push({
+                                x: d.boundingBox.originX,
+                                y: d.boundingBox.originY,
+                                w: d.boundingBox.width,
+                                h: d.boundingBox.height
+                            });
+                        }
                     }
                 }
 
-                // Exponential Moving Average
-                if (smoothedCenterX === -1) {
-                    smoothedCenterX = currentFaceX;
-                    smoothedCenterY = currentFaceY;
-                } else {
-                    smoothedCenterX = alpha * currentFaceX + (1 - alpha) * smoothedCenterX;
-                    smoothedCenterY = alpha * currentFaceY + (1 - alpha) * smoothedCenterY;
-                }
-
-                // Calculate crop box (x,y is top-left)
-                let cropX = smoothedCenterX - targetW / 2;
-                let cropY = smoothedCenterY - targetH / 2;
-
-                // Constrain
-                if (cropX < 0) cropX = 0;
-                if (cropY < 0) cropY = 0;
-                if (cropX + targetW > canvas.width) cropX = canvas.width - targetW;
-                if (cropY + targetH > canvas.height) cropY = canvas.height - targetH;
-
-                coordinates.push({
+                frameFacesCache.push({
                     time: Math.round(video.currentTime * 1000) / 1000,
-                    x: Math.round(cropX),
-                    y: Math.round(cropY),
-                    w: targetW,
-                    h: targetH
+                    faces
                 });
 
                 const duration = endTime - startTime;
@@ -155,8 +128,8 @@ export async function analyzeVideoForShorts(
                         video.currentTime += stepTime;
                     }, 10);
                 } else {
-                    console.log("[FaceTracker] Analysis complete. Coordinates generated:", coordinates.length);
-                    resolve(coordinates);
+                    console.log("[FaceTracker] Analysis complete. Frames generated:", frameFacesCache.length);
+                    resolve(frameFacesCache);
                 }
             };
 
@@ -167,13 +140,7 @@ export async function analyzeVideoForShorts(
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
                 
-                targetH = canvas.height;
-                targetW = Math.round((targetH * 9) / 16);
-                if (targetW > canvas.width) {
-                     targetW = canvas.width;
-                     targetH = Math.round((targetW * 16) / 9);
-                }
-                
+                // We don't need targetW logic here anymore
                 if (endTime <= startTime) {
                     console.warn("[FaceTracker] endTime <= startTime. Aborting.");
                     return resolve([]);
@@ -251,4 +218,102 @@ export function interpolateCrop(coords: CropCoordinate[], targetFps: number = 30
     interpolated.push(coords[coords.length - 1]);
     
     return interpolated;
+}
+
+export function buildTrajectory(
+    cache: FrameFaces[],
+    keyframes: DirectorKeyframe[],
+    videoWidth: number,
+    videoHeight: number
+): CropCoordinate[] {
+    if (!cache || cache.length === 0) return [];
+
+    let targetH = videoHeight;
+    let targetW = Math.round((targetH * 9) / 16);
+    if (targetW > videoWidth) {
+        targetW = videoWidth;
+        targetH = Math.round((targetW * 16) / 9);
+    }
+
+    // Sort keyframes by time ascending
+    const sortedKfs = [...keyframes].sort((a, b) => a.time - b.time);
+    
+    // If no keyframes, fallback to center of the video or the very first face
+    let currentTargetCenter = { x: videoWidth / 2, y: videoHeight / 2 };
+    
+    if (sortedKfs.length > 0) {
+        const firstFace = sortedKfs[0].targetFace;
+        currentTargetCenter = { 
+            x: firstFace.x + (firstFace.w / 2), 
+            y: firstFace.y + (firstFace.h / 2) 
+        };
+    } else if (cache[0].faces.length > 0) {
+        const firstFace = cache[0].faces[0];
+        currentTargetCenter = { 
+            x: firstFace.x + (firstFace.w / 2), 
+            y: firstFace.y + (firstFace.h / 2) 
+        };
+    }
+
+    const coordinates: CropCoordinate[] = [];
+    let smoothedCenterX = currentTargetCenter.x;
+    let smoothedCenterY = currentTargetCenter.y;
+    const alpha = 0.2; // Smoothing factor
+    
+    let kfIndex = 0;
+
+    for (const frame of cache) {
+        // Did we cross a new keyframe?
+        while (kfIndex < sortedKfs.length && frame.time >= sortedKfs[kfIndex].time - 0.05) {
+            const face = sortedKfs[kfIndex].targetFace;
+            currentTargetCenter = { x: face.x + (face.w / 2), y: face.y + (face.h / 2) };
+            kfIndex++;
+        }
+
+        // Find the face closest to currentTargetCenter
+        if (frame.faces.length > 0) {
+            let closestFace = frame.faces[0];
+            let minDistance = Infinity;
+
+            for (const face of frame.faces) {
+                const cx = face.x + (face.w / 2);
+                const cy = face.y + (face.h / 2);
+                const dist = Math.hypot(cx - currentTargetCenter.x, cy - currentTargetCenter.y);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    closestFace = face;
+                }
+            }
+
+            // Dist > 20% of screen width indicates we probably lost the tracker
+            if (minDistance < videoWidth * 0.3) {
+                currentTargetCenter = { 
+                    x: closestFace.x + (closestFace.w / 2), 
+                    y: closestFace.y + (closestFace.h / 2) 
+                };
+            }
+        }
+
+        // Apply EMA smoothing
+        smoothedCenterX = alpha * currentTargetCenter.x + (1 - alpha) * smoothedCenterX;
+        smoothedCenterY = alpha * currentTargetCenter.y + (1 - alpha) * smoothedCenterY;
+
+        let cropX = smoothedCenterX - targetW / 2;
+        let cropY = smoothedCenterY - targetH / 2;
+
+        if (cropX < 0) cropX = 0;
+        if (cropY < 0) cropY = 0;
+        if (cropX + targetW > videoWidth) cropX = videoWidth - targetW;
+        if (cropY + targetH > videoHeight) cropY = videoHeight - targetH;
+
+        coordinates.push({
+            time: frame.time,
+            x: Math.round(cropX),
+            y: Math.round(cropY),
+            w: targetW,
+            h: targetH
+        });
+    }
+
+    return coordinates;
 }

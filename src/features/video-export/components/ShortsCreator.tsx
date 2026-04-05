@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useAppStore } from '../../../app/store';
-import { analyzeVideoForShorts, interpolateCrop } from '../utils/faceTracker';
+import { analyzeVideoForShorts, interpolateCrop, buildTrajectory } from '../utils/faceTracker';
 import type { CropCoordinate } from '../utils/faceTracker';
-import type { ShortsClip } from '../../../app/store/types';
+import type { ShortsClip, FrameFaces, DirectorKeyframe } from '../../../app/store/types';
 import { captureVideoFrame } from '../../../shared/utils/captureFrame';
 import { buildFFmpegCommand } from '../utils/ffmpegUtils';
 import { save, open } from '@tauri-apps/plugin-dialog';
@@ -11,7 +11,7 @@ import { Command } from '@tauri-apps/plugin-shell';
 import {
     Loader2, Play, Pause, Sparkles, Settings, Smartphone,
     Upload, X, Film, Plus, Trash2, Edit2, Check, Download,
-    RotateCcw
+    RotateCcw, Focus
 } from 'lucide-react';
 import { decodeToMono } from '../../../shared/utils/audio';
 import { exportVideoWeb } from '../utils/ffmpegWeb';
@@ -48,11 +48,19 @@ export const ShortsCreator: React.FC = () => {
     const [currentCropWidth, setCurrentCropWidth] = useState<number>(320);
     const [currentCropLeft, setCurrentCropLeft] = useState<number>(0);
 
+    // Director Mode tracking state
+    const [isDirectorMode, setIsDirectorMode] = useState(false);
+    const [directorKeyframes, setDirectorKeyframes] = useState<DirectorKeyframe[]>([]);
+    const [frameFacesCache, setFrameFacesCache] = useState<FrameFaces[]>([]);
+
     const videoRef = useRef<HTMLVideoElement>(null);
     const cropBoxRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const rafRef = useRef<number | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
+
+    // Forces a re-render when video time updates so the director overlay can grab the right cache frame
+    const [, setForceRender] = useState(0);
 
 
     // Cleanup
@@ -137,10 +145,16 @@ export const ShortsCreator: React.FC = () => {
         const video = videoRef.current;
         if (!video) return;
         const handlePlay = () => setIsPlaying(true);
-        const handlePause = () => setIsPlaying(false);
+        const handlePause = () => {
+            setIsPlaying(false);
+            if (isDirectorMode) setForceRender(r => r + 1);
+        };
         const handleTimeUpdate = () => {
             if (video.currentTime > endTime && isFinite(startTime)) {
                 video.currentTime = startTime;
+            }
+            if (isDirectorMode && !isPlaying) {
+                setForceRender(r => r + 1);
             }
         };
         video.addEventListener('play', handlePlay);
@@ -218,7 +232,15 @@ export const ShortsCreator: React.FC = () => {
         setStatus('analyzing');
         setProgress(0);
         try {
-            const coords = await analyzeVideoForShorts(shortsVideoUrl, startTime, endTime, (p) => setProgress((prev) => Math.max(prev, p)), abortControllerRef.current.signal);
+            const cache = await analyzeVideoForShorts(shortsVideoUrl, startTime, endTime, (p) => setProgress((prev) => Math.max(prev, p)), abortControllerRef.current.signal);
+            
+            setFrameFacesCache(cache);
+            setDirectorKeyframes([]); // Reset custom tracking
+            
+            const w = videoRef.current?.videoWidth || 1080;
+            const h = videoRef.current?.videoHeight || 1920;
+            
+            const coords = buildTrajectory(cache, [], w, h);
             setCoordinates(coords);
             setEnableFaceTracker(true);
             setStatus('preview');
@@ -229,7 +251,9 @@ export const ShortsCreator: React.FC = () => {
                     clips: clips.map(c => c.id === editingClipId ? { 
                         ...c, 
                         enableFaceTracker: true, 
-                        coordinates: coords 
+                        coordinates: coords,
+                        frameFacesCache: cache,
+                        directorKeyframes: []
                     } : c)
                 });
             }
@@ -244,6 +268,42 @@ export const ShortsCreator: React.FC = () => {
             alert('Yüz analizi başarısız oldu: ' + err);
             setEnableFaceTracker(false);
             setStatus('idle');
+        }
+    };
+
+    const handleDirectorSelect = (time: number, face: {x:number, y:number, w:number, h:number}) => {
+        const newKf = [...directorKeyframes, { time, targetFace: face }];
+        setDirectorKeyframes(newKf);
+        const w = videoRef.current?.videoWidth || 1080;
+        const h = videoRef.current?.videoHeight || 1920;
+        const coords = buildTrajectory(frameFacesCache, newKf, w, h);
+        setCoordinates(coords);
+        if (editingClipId) {
+            setShortsConfig({
+                clips: clips.map(c => c.id === editingClipId ? { 
+                    ...c, 
+                    coordinates: coords,
+                    directorKeyframes: newKf
+                } : c)
+            });
+        }
+    };
+
+    const handleRemoveKeyframe = (time: number) => {
+        const newKf = directorKeyframes.filter(k => k.time !== time);
+        setDirectorKeyframes(newKf);
+        const w = videoRef.current?.videoWidth || 1080;
+        const h = videoRef.current?.videoHeight || 1920;
+        const coords = buildTrajectory(frameFacesCache, newKf, w, h);
+        setCoordinates(coords);
+        if (editingClipId) {
+            setShortsConfig({
+                clips: clips.map(c => c.id === editingClipId ? { 
+                    ...c, 
+                    coordinates: coords,
+                    directorKeyframes: newKf
+                } : c)
+            });
         }
     };
 
@@ -555,6 +615,8 @@ export const ShortsCreator: React.FC = () => {
         }
     };
 
+    // ... rest of component logic (the toggle functions) ...
+
     const togglePlay = () => {
         const video = videoRef.current;
         if (!video) return;
@@ -623,7 +685,9 @@ export const ShortsCreator: React.FC = () => {
             coordinates: enableFaceTracker ? coordinates : [],
             captionChunks: enableCaptions ? captionChunks : [],
             assContent: enableCaptions ? currentAssContent : '',
-            thumbnail
+            thumbnail,
+            frameFacesCache,
+            directorKeyframes
         };
         
         // Auto-Generate thumbnail if it looks like the main video (simulated for now)
@@ -795,6 +859,36 @@ export const ShortsCreator: React.FC = () => {
                                     </div>
                                 )}
 
+                                {/* Director Mode Overlay */}
+                                {isDirectorMode && !isPlaying && status === 'preview' && (
+                                    <DirectorOverlay 
+                                        currentTime={videoRef.current?.currentTime || 0}
+                                        videoW={videoRef.current?.videoWidth || 1}
+                                        videoH={videoRef.current?.videoHeight || 1}
+                                        displayW={currentCropWidth}
+                                        displayH={videoRef.current?.clientHeight || 1}
+                                        offsetX={currentCropLeft - ((currentCropWidth - (currentCropWidth)) / 2) } 
+                                        offsetY={0}  // Handled relative to video rect
+                                        // Wait, the video player might be fully scaled. Let's just pass client values
+                                        videoElement={videoRef.current}
+                                        frameFacesCache={frameFacesCache}
+                                        onSelect={handleDirectorSelect}
+                                    />
+                                )}
+
+                                {/* Keyframes Timeline */}
+                                {isDirectorMode && directorKeyframes.length > 0 && status === 'preview' && (
+                                    <div className="absolute bottom-4 left-0 right-0 flex justify-center z-40 gap-2 flex-wrap px-4 pointer-events-none">
+                                         {directorKeyframes.slice().sort((a,b) => a.time - b.time).map((kf, i) => (
+                                             <div key={i} className="bg-purple-600 border border-purple-400 text-white rounded-full px-3 py-1 flex items-center gap-2 text-[10px] font-bold shadow-lg pointer-events-auto hover:bg-purple-500 transition-colors">
+                                                 <Focus className="w-3 h-3" />
+                                                 {kf.time.toFixed(1)}s
+                                                 <button onClick={() => handleRemoveKeyframe(kf.time)} className="hover:text-red-300 transition-colors ml-1"><X className="w-3 h-3" /></button>
+                                             </div>
+                                         ))}
+                                    </div>
+                                )}
+
                                 {/* Analysis Status */}
                                 {status === 'analyzing' && (
                                     <div className="absolute inset-0 bg-white/95 backdrop-blur-sm flex flex-col items-center justify-center z-10 text-gray-900 text-center p-6">
@@ -926,6 +1020,26 @@ export const ShortsCreator: React.FC = () => {
                                             )}
                                         </span>
                                     </button>
+
+                                    {status === 'preview' && (
+                                        <button
+                                            onClick={() => setIsDirectorMode(!isDirectorMode)}
+                                            className={`w-full py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                                                isDirectorMode 
+                                                ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' 
+                                                : 'bg-transparent text-gray-500 hover:bg-gray-100 hover:text-gray-900 border border-gray-200'
+                                            }`}
+                                        >
+                                            <Focus className="w-3.5 h-3.5" />
+                                            Yönetmen Modu {isDirectorMode ? '(Açık)' : '(Kapalı)'}
+                                        </button>
+                                    )}
+
+                                    {isDirectorMode && (
+                                        <p className="text-[9px] text-purple-400/80 leading-relaxed font-medium bg-purple-500/5 p-2 rounded-lg border border-purple-500/10">
+                                            <b>Yönetmen Modu:</b> Videoyu oynatın, kameranın geçmesini istediğiniz sahnede durdurup kadrajda odaklanmak istediğiniz yüzün üzerine tıklayın.
+                                        </p>
+                                    )}
                                 </div>
                             </section>
 
@@ -1229,7 +1343,7 @@ const CaptionRenderer: React.FC<{ chunks: any[], videoRef: React.RefObject<HTMLV
                         fontWeight: '400',
                         color: w.isHighlight ? '#FFE234' : '#FFFFFF',
                         textTransform: 'uppercase',
-                        WebkitTextStroke: w.isHighlight ? '1px #B8860B' : '1.5px #000000',
+                                WebkitTextStroke: w.isHighlight ? '1px #B8860B' : '1.5px #000000',
                         paintOrder: 'stroke fill',
                         textShadow: '0 4px 12px rgba(0,0,0,1)',
                         transition: 'all 0.1s ease',
@@ -1246,3 +1360,71 @@ const CaptionRenderer: React.FC<{ chunks: any[], videoRef: React.RefObject<HTMLV
     );
 };
 
+interface DirectorOverlayProps {
+    currentTime: number;
+    videoW: number;
+    videoH: number;
+    displayW: number;
+    displayH: number;
+    offsetX: number;
+    offsetY: number;
+    videoElement: HTMLVideoElement | null;
+    frameFacesCache: FrameFaces[];
+    onSelect: (time: number, face: {x:number, y:number, w:number, h:number}) => void;
+}
+
+const DirectorOverlay: React.FC<DirectorOverlayProps> = ({ currentTime, videoW, videoH, videoElement, frameFacesCache, onSelect }) => {
+    if (!frameFacesCache || frameFacesCache.length === 0 || !videoElement) return null;
+
+    const displayW = videoElement.clientWidth;
+    const displayH = videoElement.clientHeight;
+    const scale = Math.min(displayW / videoW, displayH / videoH);
+    const drawW = videoW * scale;
+    const drawH = videoH * scale;
+    const offsetX = (displayW - drawW) / 2;
+    const offsetY = (displayH - drawH) / 2;
+
+    // Find closest frame in cache
+    let closestFrame = frameFacesCache[0];
+    let minDiff = Infinity;
+    for (const frame of frameFacesCache) {
+        const diff = Math.abs(frame.time - currentTime);
+        if (diff < minDiff) {
+            minDiff = diff;
+            closestFrame = frame;
+        }
+    }
+
+    if (closestFrame.faces.length === 0) return null;
+
+    return (
+        <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none overflow-hidden">
+            <div className="relative pointer-events-none" style={{ width: displayW, height: displayH }}>
+                {closestFrame.faces.map((face, i) => {
+                    const rectLeft = offsetX + (face.x * scale);
+                    const rectTop = offsetY + (face.y * scale);
+                    const rectW = face.w * scale;
+                    const rectH = face.h * scale;
+
+                    return (
+                        <div
+                            key={i}
+                            onClick={() => onSelect(currentTime, face)}
+                            className="absolute border-2 border-dashed border-white/50 hover:border-solid hover:border-purple-400 bg-white/5 hover:bg-purple-500/20 cursor-pointer pointer-events-auto transition-all duration-200 group flex items-center justify-center"
+                            style={{
+                                left: rectLeft,
+                                top: rectTop,
+                                width: rectW,
+                                height: rectH
+                            }}
+                        >
+                            <div className="bg-purple-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100 transition-all shadow-lg pointer-events-none">
+                                Takip Et
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};

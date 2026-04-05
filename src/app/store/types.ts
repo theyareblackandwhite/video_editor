@@ -30,16 +30,28 @@ export interface MediaFile {
     error?: string; // Loading or restoration error message
 }
 
+export interface FrameFaces {
+    time: number;
+    faces: { x: number; y: number; w: number; h: number }[];
+}
+
+export interface DirectorKeyframe {
+    time: number;
+    targetFace: { x: number; y: number; w: number; h: number };
+}
+
 export interface ShortsClip {
     id: string;
     startTime: number;
     endTime: number;
     enableFaceTracker: boolean;
     enableCaptions: boolean;
-    coordinates?: any[]; // Face tracking coordinates
+    coordinates?: any[]; // Face tracking coordinates (CropCoordinate)
     captionChunks?: any[]; // Transcription results
     assContent?: string; // Generated ASS subtitle content
-    thumbnail?: string; // Base64 thumbnail for the gallery
+    thumbnail?: string; // Base64 thumbnail
+    frameFacesCache?: FrameFaces[]; // Cached multi-face analysis
+    directorKeyframes?: DirectorKeyframe[]; // User tracked keyframes
 }
 
 export interface ShortsConfig {
