@@ -18,6 +18,11 @@ import { exportVideoWeb } from '../utils/ffmpegWeb';
 import { isTauri } from '../../../shared/utils/tauri';
 import { ClipRangePicker } from './ClipRangePicker';
 
+/** Only `blob:` URLs from `createObjectURL` may be passed to `revokeObjectURL`. */
+function revokeBlobUrl(url: string | undefined) {
+    if (url?.startsWith('blob:')) URL.revokeObjectURL(url);
+}
+
 export const ShortsCreator: React.FC = () => {
     const { shortsConfig, setShortsConfig } = useAppStore();
     const clips = shortsConfig?.clips || [];
@@ -25,6 +30,9 @@ export const ShortsCreator: React.FC = () => {
     // Standalone video for Shorts
     const [shortsVideoFile, setShortsVideoFile] = useState<File | null>(null);
     const [shortsVideoUrl, setShortsVideoUrl] = useState<string>('');
+    const [videoLayoutReady, setVideoLayoutReady] = useState(false);
+    const shortsVideoUrlRef = useRef('');
+    shortsVideoUrlRef.current = shortsVideoUrl;
 
     // Local editor state
     const [startTime, setStartTime] = useState(0);
@@ -67,10 +75,12 @@ export const ShortsCreator: React.FC = () => {
     const [, setForceRender] = useState(0);
 
 
-    // Cleanup
+    useEffect(() => {
+        setVideoLayoutReady(false);
+    }, [shortsVideoUrl]);
+
     useEffect(() => {
         return () => {
-            if (shortsVideoUrl) URL.revokeObjectURL(shortsVideoUrl);
             if (abortControllerRef.current) abortControllerRef.current.abort();
         };
     }, []);
@@ -84,7 +94,7 @@ export const ShortsCreator: React.FC = () => {
 
     const loadVideoFile = useCallback((file: File) => {
         if (!file.type.startsWith('video/')) return;
-        if (shortsVideoUrl) URL.revokeObjectURL(shortsVideoUrl);
+        revokeBlobUrl(shortsVideoUrl);
         const url = URL.createObjectURL(file);
         setShortsVideoFile(file);
         setShortsVideoUrl(url);
@@ -148,6 +158,7 @@ export const ShortsCreator: React.FC = () => {
                 const rawName = path ? path.match(/[^\\\\/]+$/)?.[0] : undefined;
                 const file = { name: rawName || 'video.mp4', path } as any;
 
+                revokeBlobUrl(shortsVideoUrlRef.current);
                 setShortsVideoFile(file);
                 setShortsVideoUrl(assetUrl);
                 setStatus('idle');
@@ -764,7 +775,7 @@ export const ShortsCreator: React.FC = () => {
 
     const removeVideo = () => {
         if (abortControllerRef.current) abortControllerRef.current.abort();
-        if (shortsVideoUrl) URL.revokeObjectURL(shortsVideoUrl);
+        revokeBlobUrl(shortsVideoUrl);
         setShortsVideoFile(null);
         setShortsVideoUrl('');
         setShortsConfig({ isActive: false, clips: [] });
@@ -861,18 +872,29 @@ export const ShortsCreator: React.FC = () => {
                                     playsInline
                                     onClick={togglePlay}
                                     onLoadedMetadata={(e) => {
-                                        const d = e.currentTarget.duration;
+                                        const el = e.currentTarget;
+                                        const d = el.duration;
                                         setVideoDuration(Number.isFinite(d) ? d : 0);
-                                        setVideoCurrentTime(e.currentTarget.currentTime);
+                                        setVideoCurrentTime(el.currentTime);
+                                        setVideoLayoutReady(el.videoWidth > 0 && el.videoHeight > 0);
                                     }}
                                     onSeeked={(e) => setVideoCurrentTime(e.currentTarget.currentTime)}
                                     onPlay={() => setIsPlaying(true)}
                                     onPause={() => setIsPlaying(false)}
                                     onEnded={() => setIsPlaying(false)}
+                                    onError={() => {
+                                        const err = videoRef.current?.error;
+                                        console.error('[ShortsCreator] video error', err?.code, err?.message);
+                                    }}
                                 />
 
-                                {/* Crop Overlay */}
-                                <div ref={cropBoxRef} className="absolute border-2 border-purple-500 bg-purple-500/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.6)] pointer-events-none transition-all duration-75" />
+                                {/* Crop Overlay — defer huge shadow until dimensions exist (avoids full black veil) */}
+                                <div
+                                    ref={cropBoxRef}
+                                    className={`absolute border-2 border-purple-500 bg-purple-500/10 pointer-events-none transition-all duration-75 ${
+                                        videoLayoutReady ? 'shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]' : ''
+                                    }`}
+                                />
 
                                 {/* Centered Play/Pause Button on Hover */}
                                 <button
