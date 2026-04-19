@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { decodeToMono } from '../../../shared/utils/audio';
 import { exportVideoWeb } from '../utils/ffmpegWeb';
+import { isTauri } from '../../../shared/utils/tauri';
 
 export const ShortsCreator: React.FC = () => {
     const { shortsConfig, setShortsConfig } = useAppStore();
@@ -1144,6 +1145,12 @@ export const ShortsCreator: React.FC = () => {
                             <h3 className="text-sm font-bold uppercase tracking-widest text-gray-400">Klipler ({clips.length})</h3>
                         </div>
                     </div>
+
+                    {!isTauri() && (
+                        <p className="text-xs text-gray-500 leading-relaxed">
+                            Masaüstü uygulaması yerel FFmpeg kullanır — daha hızlı dışa aktarım.
+                        </p>
+                    )}
 
                     <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar flex-1 min-h-0">
                         {clips.map((clip) => (

@@ -59,6 +59,7 @@ export const VideoExport: React.FC = () => {
                         <ExportSummary 
                             config={config}
                             masterVideo={masterVideo}
+                            duration={masterVideo?.duration}
                             videoFilesCount={videoFiles.length}
                             audioFilesCount={audioFiles.length}
                             cutsCount={cuts.length}
