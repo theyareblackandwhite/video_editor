@@ -1,0 +1,33 @@
+---
+description: Test harness layout — mocks, synthetic data, legibility tools, test:harness
+globs: src/test/harness/**
+alwaysApply: false
+---
+
+# Harness engineering (`src/test/harness`)
+
+## Purpose
+
+Harnesses make agent-heavy domains **fast, deterministic, and inspectable**: no WASM startup, no real media I/O unless an explicit integration test says otherwise.
+
+## When to add a harness
+
+- Any new **non-trivial pure utility** (correlation math, command building, layout math) should get:
+  - A small module under `src/test/harness/` (or `legibility/` for snapshot/audit helpers), and
+  - Vitest coverage colocated or in [src/test/harness/harness.test.ts](src/test/harness/harness.test.ts).
+
+## Patterns in this repo
+
+- **Synthetic data**: e.g. [syncHarness.ts](src/test/harness/syncHarness.ts) — typed fake signals / validators without large buffers.
+- **FFmpeg mock**: [ffmpegHarness.ts](src/test/harness/ffmpegHarness.ts) — virtual FS, checks `-i` inputs exist, returns canned outputs.
+- **Legibility**:
+  - [CanvasSnapshot.ts](src/test/harness/legibility/CanvasSnapshot.ts) — serialize Konva `Stage` structure for tests or debugging.
+  - [FFmpegAudit.ts](src/test/harness/legibility/FFmpegAudit.ts) — append-only audit log of commands/args.
+
+## Commands
+
+- Run **`npm run test:harness`** (`vitest run --dir src/test/harness`) before relying on harness-only changes; it should stay green and fast.
+
+## Production bundles
+
+- Legibility imports are for **tests, dev-only hooks, or diagnostics** — avoid bloating production bundles with debug-only Konva/audit paths unless behind explicit dev gates.

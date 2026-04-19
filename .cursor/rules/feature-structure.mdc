@@ -1,0 +1,34 @@
+---
+description: Feature-sliced layout, wizard steps, shared vs feature imports
+alwaysApply: true
+---
+
+# Feature structure (PodCut)
+
+## Layout
+
+Place feature code under:
+
+```text
+src/features/<feature-name>/
+  components/
+  hooks/
+  store/          # Zustand slice for this feature when it owns app state
+  utils/
+```
+
+Use **`src/shared/ui`** for reusable UI (e.g. `ErrorBoundary`, `StepBar`) and **`src/shared/utils`** for cross-feature helpers (`cn`, `captureFrame`, validation).
+
+## Wizard steps
+
+- Steps **1–6** are defined in [src/App.tsx](src/App.tsx) via `StepComponents`. When adding or changing a step, keep the mapping consistent with `currentStep` validation in [stateValidator.ts](src/app/store/middleware/stateValidator.ts).
+- Typical flow: Media upload → Audio sync → Timeline → Thumbnail (Konva) → Video export → Shorts.
+
+## Import boundaries
+
+- **Do not** import another feature’s internals across `src/features/*` boundaries. Share via `src/shared/` or explicit minimal exports from a feature’s **public** entry (e.g. `index.ts` that only re-exports the screen component).
+
+## App store vs feature slices
+
+- Global persisted wizard state: compose new slices into [src/app/store/index.ts](src/app/store/index.ts).
+- Canvas-only or undo-heavy UI: consider [src/store/thumbnailSlice.ts](src/store/thumbnailSlice.ts) pattern (separate store) before expanding `AppState`.

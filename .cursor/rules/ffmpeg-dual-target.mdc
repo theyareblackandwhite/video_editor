@@ -1,0 +1,34 @@
+---
+description: Web FFmpeg.wasm vs Tauri native ffmpeg — paths, FS, tests, audits
+globs: src/features/video-export/**
+alwaysApply: false
+---
+
+# FFmpeg dual target (web + Tauri)
+
+## Two execution paths
+
+| Target | Mechanism | Files / notes |
+|--------|-----------|----------------|
+| **Web** | `@ffmpeg/ffmpeg` WASM (multi-thread core), virtual FS | [src/features/video-export/utils/ffmpegWeb.ts](src/features/video-export/utils/ffmpegWeb.ts), assets under `public/ffmpeg-mt`, Vite COOP/COEP for threads |
+| **Desktop (Tauri)** | Native `ffmpeg` via `@tauri-apps/plugin-shell` `Command.create('ffmpeg', args)` | Disk paths only — no virtual FS |
+
+Never assume a single environment: code that runs in both must branch on capability (Tauri vs browser) and keep I/O shapes explicit.
+
+## Command construction
+
+- Build filter graphs and argv via **`buildFFmpegCommand`** and helpers in [src/features/video-export/utils/ffmpegUtils.ts](src/features/video-export/utils/ffmpegUtils.ts). Avoid ad-hoc string concatenation scattered across components.
+
+## Web virtual FS
+
+- Use `ffmpeg.writeFile` / `ffmpeg.readFile` (or project wrappers) for inputs/outputs in WASM mode.
+- Clean up temp virtual paths after runs to avoid memory growth across exports.
+
+## Testing
+
+- **Unit tests** must use the in-memory mock from [src/test/harness/ffmpegHarness.ts](src/test/harness/ffmpegHarness.ts) — do not load real WASM in Vitest for command validation.
+- For tracing real command sequences in integration or manual debugging, prefer recording through [src/test/harness/legibility/FFmpegAudit.ts](src/test/harness/legibility/FFmpegAudit.ts) where wired.
+
+## Audio / shell elsewhere
+
+- Some shared audio paths may use Tauri shell with a brew-style binary name — keep naming consistent with [src/shared/utils/audio.ts](src/shared/utils/audio.ts) and platform checks when touching export-adjacent audio.

@@ -1,0 +1,37 @@
+---
+description: PodCut core standards — performance, TypeScript, Zustand state, ESLint, harness tests
+alwaysApply: true
+---
+
+# PodCut core standards
+
+These conventions apply in any editor or tooling. They align with [docs/STANDARDS.md](docs/STANDARDS.md) and keep the codebase maintainable and testable.
+
+## Performance
+
+- Avoid O(n²) work on large media, frame arrays, or long timelines. Prefer single passes, maps, or bounded windows.
+- Load heavy WASM (FFmpeg, MediaPipe, ONNX, VAD) **lazily** (dynamic import / on-demand init), never on the critical path of first paint.
+
+## Type safety
+
+- TypeScript `strict` is mandatory. **Do not use `any`** — ESLint treats `@typescript-eslint/no-explicit-any` as **error**.
+- Prefer descriptive domain types (`MediaFileId`, seconds as named types) over anonymous primitives where it clarifies contracts.
+
+## Zustand / state
+
+- Updates must be **immutable** — use functional `set((state) => ({ ... }))` and shallow copies; never mutate nested objects in place.
+- App-wide mutations must go through the composed store in [src/app/store/index.ts](src/app/store/index.ts); **`stateValidator` must not be bypassed** (see [src/app/store/middleware/stateValidator.ts](src/app/store/middleware/stateValidator.ts)).
+
+## Logging
+
+- `no-console` is **warn** with only `console.warn` and `console.error` allowed without tripping the rule. Avoid `console.log` in committed code.
+
+## Complexity (ESLint)
+
+- **Cyclomatic complexity** ≤ 10 per function.
+- **Nesting depth** ≤ 4 — extract helpers or early returns instead of deeper nesting.
+
+## Tests and documentation
+
+- New complex pure logic should get coverage via `src/test/harness/` and `npm run test:harness`.
+- Prefer recording non-trivial design decisions under `docs/` (see [AGENTS.md](AGENTS.md)).

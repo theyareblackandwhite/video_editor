@@ -1,0 +1,32 @@
+---
+description: Zustand slices, persist, stateValidator, thumbnail store separation
+globs: src/**/*.ts
+alwaysApply: false
+---
+
+# Zustand patterns (PodCut)
+
+## App store composition
+
+- Canonical app store: [src/app/store/index.ts](src/app/store/index.ts) — **`useAppStore`** from `./app/store`, not legacy [src/store/useAppStore.ts](src/store/useAppStore.ts).
+- **Middleware order**: `persist(stateValidator(combinedSlices))` — `stateValidator` wraps the slice initializer so every `set` runs [validateConsistency](src/app/store/middleware/stateValidator.ts). Do not re-order or omit `stateValidator` for the main app store.
+
+## Slices
+
+- One slice per feature domain under `src/features/<feature>/store/*Slice.ts`; re-export types from [src/app/store/index.ts](src/app/store/index.ts) when consumers need them.
+- Slice factories use the form `createXSlice: StateCreator<AppState, ..., [], XSlice>`.
+- Spread slice factories into a single object in `create()` — keep slice boundaries clear (no cross-slice method calls inside initializers).
+
+## Persist
+
+- `persist` uses IndexedDB via `idbStorage`. **`partialize`** strips non-serializable fields (e.g. `File` blobs) — mirror that pattern when adding new persisted fields: persist metadata only; restore blobs via `hydrateSession` / explicit hydration paths.
+
+## Thumbnail editor store (separate)
+
+- Thumbnail canvas state lives in [src/store/thumbnailSlice.ts](src/store/thumbnailSlice.ts) with **`zundo` temporal** middleware. **Do not merge** thumbnail temporal state into `AppState` unless there is an explicit architectural change and migration plan.
+
+## Validator expectations
+
+- `currentStep` must stay in **1–6** when present.
+- `videoFiles` IDs must be unique; `cuts` must have `start < end`.
+- Validator may `console.error` on consistency failure — fix the state transition, don’t silence the validator.
