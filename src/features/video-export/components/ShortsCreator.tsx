@@ -16,6 +16,7 @@ import {
 import { decodeToMono } from '../../../shared/utils/audio';
 import { exportVideoWeb } from '../utils/ffmpegWeb';
 import { isTauri } from '../../../shared/utils/tauri';
+import { ClipRangePicker } from './ClipRangePicker';
 
 export const ShortsCreator: React.FC = () => {
     const { shortsConfig, setShortsConfig } = useAppStore();
@@ -38,6 +39,8 @@ export const ShortsCreator: React.FC = () => {
     const [isDragging, setIsDragging] = useState(false);
 
     const [isPlaying, setIsPlaying] = useState(false);
+    const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+    const [videoDuration, setVideoDuration] = useState(0);
     const [exportingClipId, setExportingClipId] = useState<string | null>(null);
     const [exportProgress, setExportProgress] = useState(0);
 
@@ -89,6 +92,8 @@ export const ShortsCreator: React.FC = () => {
         setStatus('idle');
         setCoordinates([]);
         setEditingClipId(null);
+        setVideoCurrentTime(0);
+        setVideoDuration(0);
     }, [shortsVideoUrl, setShortsConfig]);
 
     const handleUploadClick = () => {
@@ -126,6 +131,8 @@ export const ShortsCreator: React.FC = () => {
                 setShortsVideoUrl(assetUrl);
                 setStatus('idle');
                 setCoordinates([]);
+                setVideoCurrentTime(0);
+                setVideoDuration(0);
             }
         } catch (err) {
             console.error('File selection failed:', err);
@@ -151,6 +158,7 @@ export const ShortsCreator: React.FC = () => {
             if (isDirectorMode) setForceRender(r => r + 1);
         };
         const handleTimeUpdate = () => {
+            setVideoCurrentTime(video.currentTime);
             if (video.currentTime > endTime && isFinite(startTime)) {
                 video.currentTime = startTime;
             }
@@ -166,7 +174,7 @@ export const ShortsCreator: React.FC = () => {
             video.removeEventListener('pause', handlePause);
             video.removeEventListener('timeupdate', handleTimeUpdate);
         };
-    }, [startTime, endTime]);
+    }, [startTime, endTime, isDirectorMode, isPlaying]);
 
     // Crop box rendering
     useEffect(() => {
@@ -729,6 +737,7 @@ export const ShortsCreator: React.FC = () => {
         setCurrentAssContent(clip.assContent || '');
         if (videoRef.current && isFinite(clip.startTime)) {
             videoRef.current.currentTime = clip.startTime;
+            setVideoCurrentTime(clip.startTime);
         }
     };
 
@@ -743,6 +752,8 @@ export const ShortsCreator: React.FC = () => {
         setCaptionChunks([]);
         setCurrentAssContent('');
         setCaptionStatus('idle');
+        setVideoCurrentTime(0);
+        setVideoDuration(0);
     };
 
     if (!shortsVideoFile) {
@@ -828,6 +839,12 @@ export const ShortsCreator: React.FC = () => {
                                     className="max-h-full max-w-full rounded-lg shadow-2xl cursor-pointer block"
                                     playsInline
                                     onClick={togglePlay}
+                                    onLoadedMetadata={(e) => {
+                                        const d = e.currentTarget.duration;
+                                        setVideoDuration(Number.isFinite(d) ? d : 0);
+                                        setVideoCurrentTime(e.currentTarget.currentTime);
+                                    }}
+                                    onSeeked={(e) => setVideoCurrentTime(e.currentTarget.currentTime)}
                                     onPlay={() => setIsPlaying(true)}
                                     onPause={() => setIsPlaying(false)}
                                     onEnded={() => setIsPlaying(false)}
@@ -907,6 +924,29 @@ export const ShortsCreator: React.FC = () => {
                                     </div>
                                 )}
                             </div>
+                        </div>
+
+                        <div className="shrink-0 px-4 pb-4 pt-2 border-t border-white/10 bg-black/80">
+                            <ClipRangePicker
+                                duration={videoDuration}
+                                startTime={startTime}
+                                endTime={endTime}
+                                currentTime={videoCurrentTime}
+                                clips={clips.filter((c) => editingClipId === null || c.id !== editingClipId)}
+                                onStartChange={(t) => {
+                                    setStartTime(t);
+                                    if (videoRef.current) {
+                                        videoRef.current.currentTime = t;
+                                    }
+                                }}
+                                onEndChange={setEndTime}
+                                onSeek={(t) => {
+                                    if (videoRef.current) {
+                                        videoRef.current.currentTime = t;
+                                    }
+                                    setVideoCurrentTime(t);
+                                }}
+                            />
                         </div>
                     </div>
 
