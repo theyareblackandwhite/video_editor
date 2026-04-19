@@ -76,27 +76,139 @@ export const getKeepSegments = (cuts: CutSegment[], totalDuration: number) => {
  * 4. Encoding:
  *    - Set codecs and quality.
  */
+
+/** Stream-copy / remux tiers (faster than full decode+encode). Keyframe caveat for cut tiers: see classifyExportTier. */
+export type ExportTier =
+    | 'full-copy'
+    | 'single-segment-copy'
+    | 'multi-segment-copy'
+    | 'video-copy'
+    | 'full-reencode';
+
+const isFormatMatchForRemux = (config: ExportConfig, masterVideo: MediaFile): boolean =>
+    Boolean(
+        masterVideo.name?.toLowerCase().endsWith(config.format) ||
+            (masterVideo.type && masterVideo.type.includes(config.format))
+    );
+
 /**
- * Helper to determine if we can use ultra-fast passthrough (stream copy)
+ * ffconcat list for concat demuxer with inpoint/outpoint (stream copy).
+ * Paths should use forward slashes; single quotes in paths are escaped for the concat file format.
  */
-const detectFastExport = (
+export const buildConcatListContent = (
+    segments: { start: number; end: number }[],
+    srcPath: string
+): string => {
+    const normalizedPath = srcPath.replace(/\\/g, '/');
+    const escapedPath = normalizedPath.replace(/'/g, "'\\''");
+    const lines = ['ffconcat version 1.0'];
+    for (const seg of segments) {
+        lines.push(`file '${escapedPath}'`);
+        lines.push(`inpoint ${seg.start}`);
+        lines.push(`outpoint ${seg.end}`);
+    }
+    return lines.join('\n');
+};
+
+type RemuxGate = {
+    isSingleVideo: boolean;
+    hasExternalAudio: boolean;
+    noCuts: boolean;
+    noNormalization: boolean;
+    noRoundedCorners: boolean;
+    formatMatch: boolean;
+};
+
+const readRemuxGate = (
     config: ExportConfig,
     masterVideo: MediaFile,
     otherVideos: MediaFile[],
     audioFiles: MediaFile[],
     cuts: CutSegment[]
-): { isMatch: boolean; reason?: string } => {
-    const isSingleVideo = otherVideos.length === 0 && masterVideo.syncOffset === 0;
-    const hasExternalAudio = config.includeAudio && audioFiles.length > 0;
-    const noCuts = !config.applyCuts || cuts.length === 0;
-    const noNormalization = !config.normalizeAudio;
-    const noRoundedCorners = config.borderRadius === 0;
-    const isFormatMatch = Boolean(masterVideo.name?.toLowerCase().endsWith(config.format) ||
-        (masterVideo.type && masterVideo.type.includes(config.format)));
+): RemuxGate => ({
+    isSingleVideo: otherVideos.length === 0 && masterVideo.syncOffset === 0,
+    hasExternalAudio: config.includeAudio && audioFiles.length > 0,
+    noCuts: !config.applyCuts || cuts.length === 0,
+    noNormalization: !config.normalizeAudio,
+    noRoundedCorners: config.borderRadius === 0,
+    formatMatch: isFormatMatchForRemux(config, masterVideo),
+});
 
-    const isMatch = isSingleVideo && !hasExternalAudio && noCuts && noNormalization && noRoundedCorners && isFormatMatch;
-    return { isMatch };
+/**
+ * Classifies export into remux tiers vs full re-encode.
+ * For `single-segment-copy` / `multi-segment-copy`, cut boundaries align to keyframes (stream copy), not sample-accurate trim.
+ */
+/* eslint-disable complexity -- linear tier checks; each branch maps to one ExportTier */
+export const classifyExportTier = (
+    config: ExportConfig,
+    masterVideo: MediaFile,
+    otherVideos: MediaFile[],
+    audioFiles: MediaFile[],
+    cuts: CutSegment[],
+    totalDuration: number,
+    concatListPathAvailable: boolean,
+    blockFastRemuxTiers: boolean
+): ExportTier => {
+    if (blockFastRemuxTiers) {
+        return 'full-reencode';
+    }
+
+    const g = readRemuxGate(config, masterVideo, otherVideos, audioFiles, cuts);
+    const segments = config.applyCuts ? getKeepSegments(cuts, totalDuration) : [{ start: 0, end: totalDuration }];
+    const segmentDurationOk =
+        segments.length > 0 && segments.every((s) => s.end > s.start && Number.isFinite(s.start) && Number.isFinite(s.end));
+
+    if (
+        g.isSingleVideo &&
+        !g.hasExternalAudio &&
+        g.noCuts &&
+        g.noNormalization &&
+        g.noRoundedCorners &&
+        g.formatMatch
+    ) {
+        return 'full-copy';
+    }
+
+    const canStreamCopyCuts =
+        g.isSingleVideo &&
+        !g.hasExternalAudio &&
+        g.noNormalization &&
+        g.noRoundedCorners &&
+        g.formatMatch &&
+        config.applyCuts &&
+        cuts.length > 0 &&
+        segmentDurationOk;
+
+    if (canStreamCopyCuts) {
+        if (segments.length === 1) return 'single-segment-copy';
+        if (segments.length > 1 && concatListPathAvailable) return 'multi-segment-copy';
+    }
+
+    if (g.isSingleVideo && g.noCuts && g.noRoundedCorners && g.formatMatch) {
+        return 'video-copy';
+    }
+
+    return 'full-reencode';
 };
+/* eslint-enable complexity */
+
+/** Map composeAudioFilter output to a -map target (input stream vs filter label). */
+const mapAudioSelectArg = (finalAudioSource: string): string => {
+    if (finalAudioSource.startsWith('[')) {
+        const inner = finalAudioSource.slice(1, -1);
+        if (/^\d+:a$/.test(inner)) {
+            return inner;
+        }
+        return finalAudioSource;
+    }
+    return finalAudioSource;
+};
+
+const wrapAudioFilterInput = (finalAudioSource: string): string =>
+    finalAudioSource.startsWith('[') ? finalAudioSource : `[${finalAudioSource}]`;
+
+const getTier4AudioCodecArgs = (config: ExportConfig): string[] =>
+    config.format === 'mp4' ? ['-c:a', 'aac', '-b:a', '192k'] : ['-c:a', 'libopus', '-b:a', '128k'];
 
 /**
  * Applies a rounded-corner alpha mask to a video stream.
@@ -354,6 +466,7 @@ const applyTrimmingAndTransitions = (
 /**
  * Gets encoding arguments based on format, quality, and OS
  */
+// eslint-disable-next-line complexity -- OS-specific codec branches
 const getEncodingArguments = (config: ExportConfig): string[] => {
     const args: string[] = ['-threads', '0'];
 
@@ -395,6 +508,154 @@ const getEncodingArguments = (config: ExportConfig): string[] => {
     return args;
 };
 
+const buildRemuxFullCopyArgs = (
+    config: ExportConfig,
+    masterVideo: MediaFile,
+    outputPath: string
+): string[] => {
+    const remuxArgs: string[] = ['-y', '-nostdin', '-i', masterVideo.path];
+    remuxArgs.push('-c:v', 'copy');
+    if (!config.includeAudio) remuxArgs.push('-an');
+    else remuxArgs.push('-c:a', 'copy');
+    if (config.format === 'mp4') remuxArgs.push('-movflags', '+faststart');
+    remuxArgs.push(outputPath);
+    return remuxArgs;
+};
+
+const buildRemuxSingleSegmentCopyArgs = (
+    config: ExportConfig,
+    masterVideo: MediaFile,
+    seg: { start: number; end: number },
+    outputPath: string
+): string[] => {
+    const remuxArgs: string[] = ['-y', '-nostdin'];
+    if (seg.start > 0) remuxArgs.push('-ss', seg.start.toString());
+    remuxArgs.push('-i', masterVideo.path);
+    remuxArgs.push('-t', (seg.end - seg.start).toString());
+    remuxArgs.push('-c:v', 'copy');
+    if (!config.includeAudio) remuxArgs.push('-an');
+    else remuxArgs.push('-c:a', 'copy');
+    if (config.format === 'mp4') remuxArgs.push('-movflags', '+faststart');
+    remuxArgs.push(outputPath);
+    return remuxArgs;
+};
+
+const buildRemuxMultiSegmentConcatArgs = (
+    config: ExportConfig,
+    concatListPath: string,
+    outputPath: string
+): string[] => {
+    const remuxArgs: string[] = [
+        '-y',
+        '-nostdin',
+        '-f',
+        'concat',
+        '-safe',
+        '0',
+        '-i',
+        concatListPath,
+        '-c:v',
+        'copy',
+    ];
+    if (!config.includeAudio) remuxArgs.push('-an');
+    else remuxArgs.push('-c:a', 'copy');
+    if (config.format === 'mp4') remuxArgs.push('-movflags', '+faststart');
+    remuxArgs.push(outputPath);
+    return remuxArgs;
+};
+
+const buildRemuxVideoCopyArgs = (
+    config: ExportConfig,
+    masterVideo: MediaFile,
+    audioFiles: MediaFile[],
+    outputPath: string
+): string[] => {
+    const remuxArgs: string[] = ['-y', '-nostdin', '-i', masterVideo.path];
+    if (config.includeAudio) {
+        audioFiles.forEach((a) => remuxArgs.push('-i', a.path));
+    }
+    const tier4Fc: string[] = [];
+    if (config.includeAudio) {
+        const audioInputOffset = 1;
+        const finalAudioSource = composeAudioFilter(
+            audioFiles,
+            audioInputOffset,
+            config.includeAudio,
+            tier4Fc
+        );
+        const graphBeforeLoudnorm = tier4Fc.length > 0;
+        let mapAudio = mapAudioSelectArg(finalAudioSource);
+        if (config.normalizeAudio) {
+            tier4Fc.push(
+                `${wrapAudioFilterInput(finalAudioSource)}loudnorm=I=-16:TP=-1.5:LRA=11[a_t4_out]`
+            );
+            mapAudio = '[a_t4_out]';
+        }
+        if (tier4Fc.length > 0) {
+            remuxArgs.push('-filter_complex', tier4Fc.join(';'));
+        }
+        remuxArgs.push('-map', '0:v', '-map', mapAudio);
+        remuxArgs.push('-c:v', 'copy');
+        const needsAudioReencode = graphBeforeLoudnorm || config.normalizeAudio;
+        if (needsAudioReencode) {
+            remuxArgs.push(...getTier4AudioCodecArgs(config));
+        } else {
+            remuxArgs.push('-c:a', 'copy');
+        }
+    } else {
+        remuxArgs.push('-map', '0:v', '-an', '-c:v', 'copy');
+    }
+    if (config.format === 'mp4') remuxArgs.push('-movflags', '+faststart');
+    remuxArgs.push(outputPath);
+    return remuxArgs;
+};
+
+const tryBuildRemuxTierCommand = (
+    config: ExportConfig,
+    masterVideo: MediaFile,
+    otherVideos: MediaFile[],
+    audioFiles: MediaFile[],
+    cuts: CutSegment[],
+    totalDuration: number,
+    segments: { start: number; end: number }[],
+    concatListPath: string | undefined,
+    remuxSafe: boolean,
+    outputPath: string
+): string[] | null => {
+    if (!remuxSafe) {
+        return null;
+    }
+
+    let tier = classifyExportTier(
+        config,
+        masterVideo,
+        otherVideos,
+        audioFiles,
+        cuts,
+        totalDuration,
+        Boolean(concatListPath),
+        false
+    );
+    if (tier === 'multi-segment-copy' && !concatListPath) {
+        tier = 'full-reencode';
+    }
+
+    if (tier === 'full-copy') {
+        return buildRemuxFullCopyArgs(config, masterVideo, outputPath);
+    }
+    if (tier === 'single-segment-copy') {
+        return buildRemuxSingleSegmentCopyArgs(config, masterVideo, segments[0], outputPath);
+    }
+    if (tier === 'multi-segment-copy' && concatListPath) {
+        return buildRemuxMultiSegmentConcatArgs(config, concatListPath, outputPath);
+    }
+    if (tier === 'video-copy') {
+        return buildRemuxVideoCopyArgs(config, masterVideo, audioFiles, outputPath);
+    }
+    return null;
+};
+
+/* eslint-disable complexity -- FFmpeg argv assembly: shorts vs standard + remux fast paths delegated */
 export const buildFFmpegCommand = (
     config: ExportConfig,
     cuts: CutSegment[],
@@ -409,20 +670,52 @@ export const buildFFmpegCommand = (
     subtitleFile?: string,
     overlayMaskPath?: string,
     maxHeight?: number,
+    concatListPath?: string,
     isWeb?: boolean
 ): string[] => {
-    const args: string[] = ['-y', '-nostdin'];
-    const filterComplex: string[] = [];
-
     const masterVideo = videoFiles.find(v => v.id === masterVideoId)!;
     const otherVideos = videoFiles.filter(v => v.id !== masterVideoId);
 
-    const currentShort = activeClip || (shortsConfig?.isActive ? {
-        startTime: (shortsConfig as any).startTime || 0,
-        endTime: (shortsConfig as any).endTime || totalDuration,
-        enableFaceTracker: (shortsConfig as any).enableFaceTracker || false,
-        enableCaptions: (shortsConfig as any).enableCaptions || false,
-    } : null);
+    const currentShort =
+        activeClip ||
+        (shortsConfig?.isActive
+            ? {
+                  startTime: shortsConfig.startTime ?? 0,
+                  endTime: shortsConfig.endTime ?? totalDuration,
+                  enableFaceTracker: shortsConfig.enableFaceTracker ?? false,
+                  enableCaptions: shortsConfig.enableCaptions ?? false,
+              }
+            : null);
+
+    const segments = currentShort
+        ? [{ start: 0, end: totalDuration }]
+        : config.applyCuts
+          ? getKeepSegments(cuts, totalDuration)
+          : [{ start: 0, end: totalDuration }];
+
+    const remuxSafe =
+        !overlayMaskPath &&
+        !currentShort &&
+        (!shortsConfig || !shortsConfig.isActive);
+
+    const remuxCmd = tryBuildRemuxTierCommand(
+        config,
+        masterVideo,
+        otherVideos,
+        audioFiles,
+        cuts,
+        totalDuration,
+        segments,
+        concatListPath,
+        remuxSafe,
+        outputPath
+    );
+    if (remuxCmd) {
+        return remuxCmd;
+    }
+
+    const args: string[] = ['-y', '-nostdin'];
+    const filterComplex: string[] = [];
 
     // 1. Inputs
     if (currentShort) {
@@ -445,19 +738,7 @@ export const buildFFmpegCommand = (
         args.push('-i', overlayMaskPath);
     }
 
-    const segments = config.applyCuts ? getKeepSegments(cuts, totalDuration) : [{ start: 0, end: totalDuration }];
-
     const isDesktop = !isWeb;
-
-    // 2. Fast Export Detection
-    if (!currentShort && detectFastExport(config, masterVideo, otherVideos, audioFiles, cuts).isMatch && (!shortsConfig || !shortsConfig.isActive)) {
-        args.push('-c:v', 'copy');
-        if (!config.includeAudio) args.push('-an');
-        else args.push('-c:a', 'copy');
-        if (config.format === 'mp4') args.push('-movflags', '+faststart');
-        args.push(outputPath);
-        return args;
-    }
 
     // 3. Audio/Video Filter Composition
     let mappingVideo = '';
@@ -555,3 +836,4 @@ export const buildFFmpegCommand = (
 
     return args;
 };
+/* eslint-enable complexity */

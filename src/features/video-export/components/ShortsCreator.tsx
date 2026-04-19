@@ -540,8 +540,8 @@ export const ShortsCreator: React.FC = () => {
 
                 const args = buildFFmpegCommand(
                     config, [], videoRef.current?.duration || 0, [dummyMaster], [],
-                    masterVideoId, selectedPath, cropFilePath, undefined, clip, 
-                    subtitleFilePath, undefined, undefined, !isTauri
+                    masterVideoId, selectedPath, cropFilePath, undefined, clip,
+                    subtitleFilePath, undefined, undefined, undefined, !isTauri
                 );
                 console.log('[Shorts-Export] Tauri FFmpeg Launching with args:', args.join(' '));
 

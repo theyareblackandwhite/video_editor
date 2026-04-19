@@ -5,7 +5,12 @@ import { writeTextFile, remove, readFile } from '@tauri-apps/plugin-fs';
 import { safeConvertFileSrc, isTauri } from '../../../shared/utils/tauri';
 import { useAppStore } from '../../../app/store';
 import type { ExportConfig } from '../utils/ffmpegUtils';
-import { buildFFmpegCommand } from '../utils/ffmpegUtils';
+import {
+    buildFFmpegCommand,
+    buildConcatListContent,
+    classifyExportTier,
+    getKeepSegments,
+} from '../utils/ffmpegUtils';
 import type { MediaFile, CutSegment } from '../../../app/store/types';
 import { analyzeVideoForShorts } from '../utils/faceTracker';
 import { exportVideoWeb } from '../utils/ffmpegWeb';
@@ -70,6 +75,7 @@ export function useExportProcess({
         
         let cropFileContent: string | undefined = undefined;
         let subtitleFileContent: string | undefined = undefined;
+        let concatListPath: string | undefined;
 
         try {
             let selectedPath = '';
@@ -205,10 +211,43 @@ export function useExportProcess({
             if (isTauriEnv) {
                 const safeSubtitle = subtitleFile || undefined;
                 const safeCrop = cropFile || undefined;
+                const otherVideos = videoFiles.filter((v) => v.id !== masterVideo.id);
+                const segments = config.applyCuts
+                    ? getKeepSegments(cuts, duration)
+                    : [{ start: 0, end: duration }];
+                const tier = classifyExportTier(
+                    config,
+                    masterVideo,
+                    otherVideos,
+                    audioFiles,
+                    cuts,
+                    duration,
+                    isTauriEnv,
+                    Boolean(shortsConfig?.isActive)
+                );
+                if (tier === 'multi-segment-copy') {
+                    concatListPath = `${selectedPath}.concat_list.txt`;
+                    await writeTextFile(
+                        concatListPath,
+                        buildConcatListContent(segments, masterVideo.path)
+                    );
+                }
                 const args = buildFFmpegCommand(
-                    config, cuts, duration, videoFiles, audioFiles, 
-                    masterVideo.id, selectedPath, safeCrop, shortsConfig, 
-                    undefined, safeSubtitle, undefined, undefined, !isTauriEnv
+                    config,
+                    cuts,
+                    duration,
+                    videoFiles,
+                    audioFiles,
+                    masterVideo.id,
+                    selectedPath,
+                    safeCrop,
+                    shortsConfig,
+                    undefined,
+                    safeSubtitle,
+                    undefined,
+                    undefined,
+                    concatListPath,
+                    !isTauriEnv
                 );
 
                 const cmd = Command.create('ffmpeg', args);
@@ -296,6 +335,7 @@ export function useExportProcess({
                 if (cropFile) remove(cropFile).catch(() => {});
                 if (subtitleFile) remove(subtitleFile).catch(() => {});
                 if (tempAudioPath) remove(tempAudioPath).catch(() => {});
+                if (concatListPath) remove(concatListPath).catch(() => {});
             }
         }
     }, [videoFiles, audioFiles, masterVideo, config, cuts]);

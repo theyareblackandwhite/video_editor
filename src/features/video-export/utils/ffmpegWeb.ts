@@ -1,7 +1,13 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { toBlobURL } from '@ffmpeg/util';
 import type { MediaFile, CutSegment, ShortsConfig, ShortsClip } from '../../../app/store/types';
-import { buildFFmpegCommand, type ExportConfig } from './ffmpegUtils';
+import {
+    buildFFmpegCommand,
+    buildConcatListContent,
+    classifyExportTier,
+    getKeepSegments,
+    type ExportConfig,
+} from './ffmpegUtils';
 import { safeConvertFileSrc } from '../../../shared/utils/tauri';
 
 let ffmpegInstance: FFmpeg | null = null;
@@ -273,10 +279,36 @@ export async function exportVideoWeb(
         // Create a copy of the state where paths are replaced with virtual names
         const virtualVideoFiles = videoFiles.map(v => ({ ...v, path: fileMap.get(v.id)! }));
         const virtualAudioFiles = audioFiles.map(a => ({ ...a, path: fileMap.get(a.id)! }));
-        
+
         // Force libx264 for web (WASM doesn't have videotoolbox/nvenc)
         const webConfig = { ...config };
-        
+
+        const virtualMasterPath = fileMap.get(masterVideo.id)!;
+        const segments = webConfig.applyCuts
+            ? getKeepSegments(cuts, totalDuration)
+            : [{ start: 0, end: totalDuration }];
+        const otherVirtualVideos = virtualVideoFiles.filter((v) => v.id !== masterVideo.id);
+        const tier = classifyExportTier(
+            webConfig,
+            { ...masterVideo, path: virtualMasterPath },
+            otherVirtualVideos,
+            virtualAudioFiles,
+            cuts,
+            totalDuration,
+            true,
+            Boolean(activeClip) || Boolean(shortsConfig?.isActive)
+        );
+
+        let virtualConcatListPath: string | undefined;
+        if (tier === 'multi-segment-copy') {
+            virtualConcatListPath = 'concat_list.txt';
+            await ffmpeg.deleteFile(virtualConcatListPath).catch(() => {});
+            await ffmpeg.writeFile(
+                virtualConcatListPath,
+                new TextEncoder().encode(buildConcatListContent(segments, virtualMasterPath))
+            );
+        }
+
         const outputName = `output.${config.format}`;
 
         const args = buildFFmpegCommand(
@@ -293,6 +325,7 @@ export async function exportVideoWeb(
             virtualSubtitlePath,
             virtualMaskPath,
             720, // Cap height to 720p on web for performance
+            virtualConcatListPath,
             true // isWeb
         );
 
@@ -318,6 +351,7 @@ export async function exportVideoWeb(
         if (virtualCropPath) await ffmpeg.deleteFile(virtualCropPath).catch(() => {});
         if (virtualSubtitlePath) await ffmpeg.deleteFile(virtualSubtitlePath).catch(() => {});
         if (virtualMaskPath) await ffmpeg.deleteFile(virtualMaskPath).catch(() => {});
+        if (virtualConcatListPath) await ffmpeg.deleteFile(virtualConcatListPath).catch(() => {});
         await ffmpeg.deleteFile(outputName).catch(() => {});
 
         return data as Uint8Array;
