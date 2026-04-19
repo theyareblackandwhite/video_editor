@@ -724,12 +724,6 @@ export const buildFFmpegCommand = (
         args.push('-t', (currentShort.endTime - currentShort.startTime).toString());
         args.push('-i', masterVideo.path);
 
-        // Native FFmpeg (e.g. Homebrew) often lacks libass, so the `subtitles=` filter is unavailable.
-        // Add ASS as a second input and embed as mov_text (soft subs) instead of burning in.
-        if (!isWeb && currentShort.enableCaptions && subtitleFile && config.format === 'mp4') {
-            args.push('-i', subtitleFile);
-        }
-
         // Note: For shorts, we currently ignore other videos and audio files for simplicity in this path
     } else {
         args.push('-i', masterVideo.path);
@@ -762,8 +756,8 @@ export const buildFFmpegCommand = (
         }
 
         let vFilter = `setpts=PTS-STARTPTS,${cropFilter}`;
-        // Burn-in via `subtitles=` requires libass (present in WASM FFmpeg, often missing in Homebrew builds).
-        if (currentShort.enableCaptions && subtitleFile && isWeb) {
+        // Burn-in via `subtitles=` requires libass (bundled sidecar on Tauri; WASM build on web).
+        if (currentShort.enableCaptions && subtitleFile) {
             // FFmpeg subtitles filter path escaping:
             // 1. Backslashes become forward slashes (FFmpeg prefers this)
             // 2. Colons must be escaped on Windows (e.g., C\:...)
@@ -771,13 +765,14 @@ export const buildFFmpegCommand = (
             const escapedPath = subtitleFile
                 .replace(/\\/g, '/')
                 .replace(/:/g, '\\\\:')
+                .replace(/ /g, '\\ ')
                 .replace(/'/g, "\\\\'");
 
-            // Web/WASM needs fontsdir=/fonts to find the virtual fonts
-            const fontsDirOption = ':fontsdir=/fonts';
+            // Web/WASM needs fontsdir=/fonts to find the virtual fonts; native uses system fonts.
+            const fontsDirOption = isWeb ? ':fontsdir=/fonts' : '';
 
             // force_style ensures font mapping works even if the ASS file style is generic.
-            vFilter += `,subtitles=filename='${escapedPath}'${fontsDirOption}:force_style='Fontname=Roboto Bold'`;
+            vFilter += `,subtitles=filename='${escapedPath}'${fontsDirOption}:force_style='Fontname=Arial Bold'`;
         }
 
         // Rescale for performance on web, ensuring even dimensions for libx264
@@ -837,14 +832,6 @@ export const buildFFmpegCommand = (
         args.push('-filter_complex', filterComplex.join(';'));
     }
     args.push('-map', mappingVideo, '-map', mappingAudio);
-    if (
-        currentShort?.enableCaptions &&
-        subtitleFile &&
-        !isWeb &&
-        config.format === 'mp4'
-    ) {
-        args.push('-map', '1:s:0?', '-c:s', 'mov_text');
-    }
     args.push(...getEncodingArguments(config));
     args.push(outputPath);
 

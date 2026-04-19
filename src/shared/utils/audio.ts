@@ -1,9 +1,23 @@
-import { Command } from '@tauri-apps/plugin-shell';
 import { tempDir, join } from '@tauri-apps/api/path';
 import { isTauri, safeConvertFileSrc } from './tauri';
-import { mkdir, exists } from '@tauri-apps/plugin-fs';
+import { createFfmpegCommand } from './tauriFfmpeg';
+import { mkdir, exists, remove } from '@tauri-apps/plugin-fs';
 import { type CutSegment, type MediaFile } from '../../app/store/types';
 import { NonRealTimeVAD } from '@ricky0123/vad-web';
+
+function truncateStderr(s: string, maxLen: number): string {
+    const t = (s || '').trim();
+    if (t.length <= maxLen) return t;
+    return `${t.slice(0, maxLen)}…`;
+}
+
+/** Thrown when the bundled FFmpeg sidecar exits with a non-zero code (stderr preserved). */
+class FFmpegExitError extends Error {
+    constructor(code: number, stderr: string) {
+        super(`FFmpeg çıkış kodu ${code}\n${truncateStderr(stderr, 6000)}`);
+        this.name = 'FFmpegExitError';
+    }
+}
 
 /**
  * Extracts audio to a temporary WAV file using Native FFmpeg.
@@ -14,6 +28,22 @@ async function extractAudioWav(
     maxDuration?: number,
     startOffset?: number
 ): Promise<string> {
+    if (isTauri()) {
+        const sp = sourcePath.trim();
+        if (
+            !sp ||
+            sp.startsWith('blob:') ||
+            sp.startsWith('http://') ||
+            sp.startsWith('https://') ||
+            sp.startsWith('asset:') ||
+            sp.startsWith('tauri:')
+        ) {
+            throw new Error(
+                'FFmpeg yerel bir dosya yolu bekliyor; blob veya ağ önizleme URL\'si kullanılamaz. Videoyu "Video Seç" ile yeniden yükleyin.'
+            );
+        }
+    }
+
     const dataDir = await tempDir();
     
     // Ensure data directory exists
@@ -30,36 +60,40 @@ async function extractAudioWav(
     console.log('Extracting audio to:', outPath);
 
     const args: string[] = [];
-    if (startOffset) {
+    if (startOffset != null && startOffset > 0) {
         args.push('-ss', startOffset.toString());
     }
     args.push('-i', sourcePath);
-    if (maxDuration) {
+    if (maxDuration != null && maxDuration > 0) {
         args.push('-t', maxDuration.toString());
     }
     args.push('-ac', '1', '-ar', sampleRate.toString(), '-f', 'wav', '-y', outPath);
 
-    const tryCommand = async (cmdName: string) => {
-        try {
-            const cmd = Command.create(cmdName, args);
-            const result = await cmd.execute();
-            if (result.code === 0) return true;
-            console.error(`FFmpeg (${cmdName}) failed with code ${result.code}:`, result.stderr);
-            return result.stderr;
-        } catch (e) {
-            console.warn(`FFmpeg (${cmdName}) execution failed:`, e);
-            return String(e);
+    try {
+        const cmd = createFfmpegCommand(args);
+        const result = await cmd.execute();
+        if (result.code === 0) return outPath;
+        console.error('FFmpeg non-zero exit', result.code, 'args:', args, 'stderr:', result.stderr);
+        throw new FFmpegExitError(result.code ?? -1, result.stderr || '');
+    } catch (e) {
+        if (e instanceof FFmpegExitError) {
+            throw e;
         }
-    };
-
-    const res1 = await tryCommand('ffmpeg');
-    if (res1 === true) return outPath;
-
-    // Use the alias defined in Tauri capabilities, NOT the raw path
-    const res2 = await tryCommand('ffmpeg-brew');
-    if (res2 === true) return outPath;
-
-    throw new Error(`FFmpeg ses çıkarma başarısız oldu. \nHata 1: ${res1}\nHata 2: ${res2}`);
+        const msg = e instanceof Error ? e.message : String(e);
+        const lower = msg.toLowerCase();
+        const looksLikeSidecarOrSpawn =
+            lower.includes('enoent') ||
+            lower.includes('no such file') ||
+            lower.includes('sidecar') ||
+            lower.includes('not allowed') ||
+            (lower.includes('spawn') && lower.includes('fail'));
+        if (looksLikeSidecarOrSpawn) {
+            throw new Error(
+                `FFmpeg sidecar çalıştırılamadı. Depo kökünde çalıştırın: bash scripts/download-ffmpeg-sidecars.sh\n${msg}`
+            );
+        }
+        throw e instanceof Error ? e : new Error(msg);
+    }
 }
 
 /**
@@ -80,11 +114,11 @@ export async function decodeToMono(
         // 1. Extract raw wav via FFmpeg native shell
         const wavPath = await extractAudioWav(filePath, sampleRate, maxDuration, startOffset);
         console.log('WAV extracted to:', wavPath);
-        
-        // 2. Fetch the extracted wav into browser memory
+
+        // 2. Fetch the extracted wav into browser memory; always remove temp WAV
         const assetUrl = safeConvertFileSrc(wavPath);
         console.log('Asset URL:', assetUrl);
-        
+
         try {
             const response = await fetch(assetUrl);
             if (!response.ok) {
@@ -94,6 +128,12 @@ export async function decodeToMono(
         } catch (e) {
             console.error('Failed to fetch extracted audio:', e);
             throw new Error(`Ses dosyası yüklenemedi: ${e}`);
+        } finally {
+            try {
+                await remove(wavPath);
+            } catch {
+                /* ignore */
+            }
         }
     } else {
         // Web fallback: fetch directly
@@ -135,9 +175,16 @@ export async function decodeToMono(
         let channelData = decoded.getChannelData(0);
         
         // Crop if startOffset or maxDuration is set (primarily for web fallback where FFmpeg didn't crop)
-        if (!isTauri() && (startOffset || maxDuration)) {
-            const startSample = startOffset ? Math.floor(startOffset * sampleRate) : 0;
-            const numSamples = maxDuration ? Math.floor(maxDuration * sampleRate) : (channelData.length - startSample);
+        if (
+            !isTauri() &&
+            ((startOffset != null && startOffset > 0) || (maxDuration != null && maxDuration > 0))
+        ) {
+            const startSample =
+                startOffset != null && startOffset > 0 ? Math.floor(startOffset * sampleRate) : 0;
+            const numSamples =
+                maxDuration != null && maxDuration > 0
+                    ? Math.floor(maxDuration * sampleRate)
+                    : channelData.length - startSample;
             channelData = channelData.slice(startSample, startSample + numSamples);
         }
 

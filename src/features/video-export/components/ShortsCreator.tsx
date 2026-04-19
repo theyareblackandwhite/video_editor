@@ -7,7 +7,7 @@ import { captureVideoFrame } from '../../../shared/utils/captureFrame';
 import { buildFFmpegCommand } from '../utils/ffmpegUtils';
 import { save, open } from '@tauri-apps/plugin-dialog';
 import { writeTextFile, remove } from '@tauri-apps/plugin-fs';
-import { Command } from '@tauri-apps/plugin-shell';
+import { createFfmpegCommand } from '../../../shared/utils/tauriFfmpeg';
 import {
     Loader2, Play, Pause, Sparkles, Settings, Smartphone,
     Upload, X, Film, Plus, Trash2, Edit2, Check, Download,
@@ -95,6 +95,27 @@ export const ShortsCreator: React.FC = () => {
         setVideoCurrentTime(0);
         setVideoDuration(0);
     }, [shortsVideoUrl, setShortsConfig]);
+
+    /** Tauri + FFmpeg need a real filesystem path; web can use blob/object URL. */
+    const getDecodeInputPath = useCallback((): string => {
+        const tauri = !!(window as any).__TAURI_INTERNALS__;
+        const filePath = (shortsVideoFile as { path?: string } | null)?.path;
+        if (tauri) {
+            if (
+                !filePath ||
+                typeof filePath !== 'string' ||
+                filePath.startsWith('blob:') ||
+                filePath.startsWith('http://') ||
+                filePath.startsWith('https://')
+            ) {
+                throw new Error(
+                    'Altyazı ve ses çıkarma için yerel video dosyası gerekir. Lütfen "Video Seç" ile dosyayı tekrar seçin (blob önizleme yolu FFmpeg ile kullanılamaz).'
+                );
+            }
+            return filePath;
+        }
+        return filePath || shortsVideoUrl;
+    }, [shortsVideoFile, shortsVideoUrl]);
 
     const handleUploadClick = () => {
         if ((window as any).__TAURI_INTERNALS__) {
@@ -321,7 +342,7 @@ export const ShortsCreator: React.FC = () => {
         setCaptionStatus('generating');
 
         try {
-            const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
+            const nativePath = getDecodeInputPath();
 
             // Extract audio as float32 mono for Whisper (16kHz)
             // Only extract the selected segment to speed up transcription
@@ -408,7 +429,7 @@ export const ShortsCreator: React.FC = () => {
     const handleExportClip = async (clip: ShortsClip) => {
         if (!shortsVideoUrl) return;
 
-        const isTauri = !!(window as any).__TAURI_INTERNALS__;
+        const isTauriEnv = !!(window as any).__TAURI_INTERNALS__;
         const videoFiles = useAppStore.getState().videoFiles;
         const layoutMode = useAppStore.getState().layoutMode;
         const transitionType = useAppStore.getState().transitionType;
@@ -430,7 +451,7 @@ export const ShortsCreator: React.FC = () => {
 
         try {
             let selectedPath: string | undefined = undefined;
-            if (isTauri) {
+            if (isTauriEnv) {
                 const result = await save({
                     filters: [{ name: 'Video', extensions: ['mp4'] }],
                     defaultPath: `short_${clip.id.slice(0, 4)}.mp4`
@@ -485,7 +506,7 @@ export const ShortsCreator: React.FC = () => {
                     });
                     cropFileContent = cropLines.join('\n');
                     
-                    if (isTauri && selectedPath) {
+                    if (isTauriEnv && selectedPath) {
                         cropFilePath = selectedPath + '.crop.txt';
                         await writeTextFile(cropFilePath, cropFileContent);
                     }
@@ -499,8 +520,8 @@ export const ShortsCreator: React.FC = () => {
                     subtitleFileContent = clip.assContent;
                 } else {
                     console.log('[Shorts-Export] Running new transcription...');
-                    const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
-                    
+                    const nativePath = getDecodeInputPath();
+
                     // For transcription, we always use the web-optimized worker path
                     const float32Data = await decodeToMono(nativePath, 16000, clip.endTime - clip.startTime, clip.startTime);
                     const worker = new Worker(new URL('../utils/transcriber.ts', import.meta.url), { type: 'module' });
@@ -521,7 +542,7 @@ export const ShortsCreator: React.FC = () => {
                     });
                 }
 
-                if (isTauri && selectedPath && subtitleFileContent) {
+                if (isTauriEnv && selectedPath && subtitleFileContent) {
                     subtitleFilePath = selectedPath + '.ass';
                     console.log('[Shorts-Export] Saving subtitle file to:', subtitleFilePath);
                     console.log('[Shorts-Export] Subtitle content preview (first 200 chars):', subtitleFileContent.substring(0, 200));
@@ -530,7 +551,7 @@ export const ShortsCreator: React.FC = () => {
             }
 
             const masterVideoId = videoFiles.find(v => v.isMaster)?.id || (videoFiles.length > 0 ? videoFiles[0].id : 'shorts-master');
-            const nativePath = (shortsVideoFile as any).path || shortsVideoUrl;
+            const nativePath = getDecodeInputPath();
             const dummyMaster: any = { 
                 id: masterVideoId, 
                 path: nativePath, 
@@ -540,7 +561,7 @@ export const ShortsCreator: React.FC = () => {
                 file: shortsVideoFile
             };
 
-            if (isTauri && selectedPath) {
+            if (isTauriEnv && selectedPath) {
                 // TAURI PATH: Use native Command
                 if (nativePath.startsWith('blob:')) {
                     throw new Error('Lütfen Shorts videonuzu "Video Seç" butonuna tıklayarak tekrar yükleyin.');
@@ -549,11 +570,11 @@ export const ShortsCreator: React.FC = () => {
                 const args = buildFFmpegCommand(
                     config, [], videoRef.current?.duration || 0, [dummyMaster], [],
                     masterVideoId, selectedPath, cropFilePath, undefined, clip,
-                    subtitleFilePath, undefined, undefined, undefined, !isTauri
+                    subtitleFilePath, undefined, undefined, undefined, !isTauriEnv
                 );
                 console.log('[Shorts-Export] Tauri FFmpeg Launching with args:', args.join(' '));
 
-                const cmd = Command.create('ffmpeg', args);
+                const cmd = createFfmpegCommand(args);
                 cmd.stderr.on('data', (line) => {
                     const match = line.match(/time=\s*(\d+):(\d+):(\d+\.\d+)/);
                     if (match) {

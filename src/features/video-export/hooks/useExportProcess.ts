@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Command, Child } from '@tauri-apps/plugin-shell';
+import { Child } from '@tauri-apps/plugin-shell';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile, remove, readFile } from '@tauri-apps/plugin-fs';
 import { safeConvertFileSrc, isTauri } from '../../../shared/utils/tauri';
+import { createFfmpegCommand } from '../../../shared/utils/tauriFfmpeg';
 import { useAppStore } from '../../../app/store';
 import type { ExportConfig } from '../utils/ffmpegUtils';
 import {
@@ -159,7 +160,7 @@ export function useExportProcess({
                                 '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
                                 tempAudioPath
                             ];
-                            const extractCmd = Command.create('ffmpeg', exArgs);
+                            const extractCmd = createFfmpegCommand(exArgs);
                             const exResult = await extractCmd.execute();
                             if (exResult.code === 0) {
                                 const rawAudio = await readFile(tempAudioPath);
@@ -250,7 +251,7 @@ export function useExportProcess({
                     !isTauriEnv
                 );
 
-                const cmd = Command.create('ffmpeg', args);
+                const cmd = createFfmpegCommand(args);
                 let hasSeenTime = false;
 
                 cmd.stderr.on('data', (line: string) => {

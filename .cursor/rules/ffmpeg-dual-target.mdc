@@ -11,7 +11,7 @@ alwaysApply: false
 | Target | Mechanism | Files / notes |
 |--------|-----------|----------------|
 | **Web** | `@ffmpeg/ffmpeg` WASM (multi-thread core), virtual FS | [src/features/video-export/utils/ffmpegWeb.ts](src/features/video-export/utils/ffmpegWeb.ts), assets under `public/ffmpeg-mt`, Vite COOP/COEP for threads |
-| **Desktop (Tauri)** | Native `ffmpeg` via `@tauri-apps/plugin-shell` `Command.create('ffmpeg', args)` | Disk paths only — no virtual FS |
+| **Desktop (Tauri)** | Bundled sidecar `binaries/ffmpeg` via `Command.sidecar` in [`src/shared/utils/tauriFfmpeg.ts`](src/shared/utils/tauriFfmpeg.ts); populate with `bash scripts/download-ffmpeg-sidecars.sh` | Disk paths only — no virtual FS; includes libass for burned-in subtitles |
 
 Never assume a single environment: code that runs in both must branch on capability (Tauri vs browser) and keep I/O shapes explicit.
 
